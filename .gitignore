@@ -1,0 +1,37 @@
+# Node / 前端
+node_modules/
+frontend/dist/
+frontend/tsconfig.tsbuildinfo
+npm-debug.log*
+
+# Rust / 后端
+src-tauri/target/
+src-tauri/gen/
+
+# IDE / 工具
+.trae/
+.vscode/
+.idea/
+*.swp
+*.swo
+
+# 系统文件
+Thumbs.db
+.DS_Store
+desktop.ini
+
+# 本地环境与日志
+.env
+.env.*
+*.log
+
+# 上一任会话遗留的临时文件（不入库）
+AGENT.md
+DEV_PROGRESS_PLAN.md
+REVERSE_ANALYSIS_REPORT.md
+cmd_test.txt
+test.txt
+huya_fix.txt
+huya_replacement.rs
+write_huya.js
+StreamFlow_产品方案.html

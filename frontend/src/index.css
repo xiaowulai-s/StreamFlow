@@ -1,0 +1,50 @@
+@import "tailwindcss";
+
+/* 基于 .dark 类的暗色模式（Tailwind v4 自定义变体） */
+@custom-variant dark (&:where(.dark, .dark *));
+
+:root {
+  --background: 255 255 255;
+  --foreground: 21 183 120;
+  --primary: 40 120 245;
+  --cyan: 37 189 235;
+}
+
+.dark {
+  --background: 15 15 20;
+  --foreground: 220 220 225;
+  --primary: 100 196 255;
+  --cyan: 100 210 255;
+}
+
+html {
+  scroll-behavior: smooth;
+}
+
+body {
+  background: var(--background);
+  color: var(--foreground);
+  font-family: Inter, "Microsoft YaHei", "PingFang SC", system-ui, sans-serif;
+  line-height: 1.6;
+  margin: 0;
+  padding: 0;
+}
+
+/* Custom Scrollbar */
+::-webkit-scrollbar {
+  width: 8px;
+  height: 8px;
+}
+
+::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+::-webkit-scrollbar-thumb {
+  background: rgba(0, 0, 0, 0.1);
+  border-radius: 4px;
+}
+
+.dark::-webkit-scrollbar-thumb {
+  background: rgba(255, 255, 255, 0.1);
+}
