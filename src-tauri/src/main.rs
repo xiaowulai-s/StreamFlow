@@ -7,6 +7,7 @@
 
 use streamflow_lib::adapter::AdapterRegistry;
 use streamflow_lib::{commands, AppState, Settings};
+use tauri::Manager;
 
 #[tauri::command]
 fn greet(name: &str) -> String {
@@ -84,6 +85,50 @@ fn run() -> Result<(), Box<dyn std::error::Error>> {
             commands::get_stream_urls,
             commands::get_live_status,
         ])
+        .setup(|app| {
+            // 窗口配置 create=false，改为手动创建并带重试：
+            // 上个实例的 WebView2 浏览器进程组优雅关闭需要数秒，期间快速重启会报
+            // 0x800700AA（资源占用中）。退避重试；多次失败后备份 UDF 再重建。
+            let window_config = app
+                .config()
+                .app
+                .windows
+                .first()
+                .cloned()
+                .ok_or("配置缺少窗口定义")?;
+
+            let build_window = || {
+                tauri::WebviewWindowBuilder::from_config(app.handle(), &window_config)
+                    .expect("窗口配置无效")
+                    .build()
+            };
+
+            let mut delay: u64 = 3;
+            loop {
+                match build_window() {
+                    Ok(_) => break,
+                    Err(e) if delay <= 12 => {
+                        log::warn!("WebView2 环境创建失败（{}），{} 秒后重试", e, delay);
+                        std::thread::sleep(std::time::Duration::from_secs(delay));
+                        delay *= 2;
+                    }
+                    Err(_) => {
+                        // 最终手段：上次异常退出残留损坏 UDF，备份后重建（webview 本地存储会丢失）
+                        log::warn!("多次重试失败，备份 WebView2 数据目录后重建");
+                        let data_dir = app.path().app_local_data_dir()?;
+                        let webview_dir = data_dir.join("EBWebView");
+                        if webview_dir.exists() {
+                            let backup =
+                                data_dir.join(format!("EBWebView.broken-{}", std::process::id()));
+                            let _ = std::fs::rename(&webview_dir, &backup);
+                        }
+                        build_window().map_err(|e| -> Box<dyn std::error::Error> { e.into() })?;
+                        break;
+                    }
+                }
+            }
+            Ok(())
+        })
         .run(tauri::generate_context!())?;
 
     Ok(())

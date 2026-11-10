@@ -138,10 +138,16 @@ impl crate::adapter::PlatformAdapter for HuyaAdapter {
     }
 
     async fn search(&self, keyword: &str) -> anyhow::Result<Vec<RoomInfo>> {
-        // 官方搜索接口 search.cdn.huya.com 已下线（返回 "not supported function"）
-        // 暂返回空列表，可通过房间号直达观看
-        log::info!("虎牙搜索接口已下线，关键词 {} 返回空结果，可使用房间号直达", keyword);
-        Ok(vec![])
+        // 官方搜索接口已下线（返回 "not supported function"）。
+        // 虎牙房间页 URL 天然支持别名/短号直达（如 huya.com/lpl），按房间直达解析：
+        // 解析成功返回真实房间卡片，失败返回空列表。
+        match self.room_detail(keyword).await {
+            Ok(info) => Ok(vec![info]),
+            Err(e) => {
+                log::info!("虎牙关键词 {} 无法解析为房间：{}", keyword, e);
+                Ok(vec![])
+            }
+        }
     }
 
     async fn room_detail(&self, room_id: &str) -> anyhow::Result<RoomInfo> {

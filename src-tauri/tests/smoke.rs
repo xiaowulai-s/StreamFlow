@@ -33,6 +33,43 @@ async fn bilibili_room_detail_smoke() {
 
 #[tokio::test]
 #[ignore = "依赖真实网络"]
+async fn douyu_alias_resolution_smoke() {
+    // 别名 pigff → 数字房间号 24422（yt-dlp 已知数据），返回真实房间卡片
+    let adapter = DouyuAdapter::new();
+    let rooms = adapter.search("pigff").await.expect("别名解析失败");
+    assert!(!rooms.is_empty(), "别名 pigff 应解析出真实房间卡片");
+    assert_eq!(rooms[0].id, "24422");
+    assert_ne!(rooms[0].title, "Douyu Room", "应返回真实房间标题");
+}
+
+#[tokio::test]
+#[ignore = "依赖真实网络"]
+async fn bilibili_keyword_rejected() {
+    // B 站仅支持数字房间号：非数字关键词应返回明确错误
+    let adapter = BilibiliAdapter::new();
+    let err = adapter
+        .search("lpl")
+        .await
+        .expect_err("B 站非数字关键词应返回错误");
+    assert!(
+        err.to_string().contains("数字房间号"),
+        "错误信息应说明仅支持数字房间号: {}",
+        err
+    );
+}
+
+#[tokio::test]
+#[ignore = "依赖真实网络"]
+async fn huya_alias_smoke() {
+    // 虎牙别名 lpl 直达（频道页），应返回真实房间卡片
+    let adapter = HuyaAdapter::new();
+    let rooms = adapter.search("lpl").await.expect("虎牙别名解析失败");
+    assert!(!rooms.is_empty(), "别名 lpl 应解析出真实房间卡片");
+    assert_ne!(rooms[0].title, "Unknown Title", "应返回真实房间标题");
+}
+
+#[tokio::test]
+#[ignore = "依赖真实网络"]
 async fn huya_stream_urls_smoke() {
     let adapter = HuyaAdapter::new();
     let result = adapter.stream_urls("lpl").await.expect("获取虎牙流地址失败");

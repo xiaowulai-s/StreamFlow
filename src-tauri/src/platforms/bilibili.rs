@@ -151,9 +151,13 @@ impl crate::adapter::PlatformAdapter for BilibiliAdapter {
     }
 
     async fn search(&self, keyword: &str) -> anyhow::Result<Vec<RoomInfo>> {
-        // 搜索接口被风控（412 Precondition Failed，需登录 cookie）
-        log::info!("B 站搜索接口需登录风控，关键词 {} 返回空结果，可使用房间号直达", keyword);
-        Ok(vec![])
+        // B 站无公开搜索接口（x/web-interface/search 返回 412 风控，需登录 cookie）。
+        // 仅支持数字房间号（短号/长号均可，如 6 / 7734200）。
+        if keyword.is_empty() || !keyword.chars().all(|c| c.is_ascii_digit()) {
+            anyhow::bail!("B 站仅支持数字房间号直达（关键词搜索受平台风控限制）");
+        }
+        let info = self.room_detail(keyword).await?;
+        Ok(vec![info])
     }
 
     async fn room_detail(&self, room_id: &str) -> anyhow::Result<RoomInfo> {
