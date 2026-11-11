@@ -600,7 +600,17 @@ export function SettingsPage() {
             </>
           )}
           {updateState.kind === 'error' && (
-            <span className="text-xs text-danger">检查失败：{updateState.message.slice(0, 60)}</span>
+            <>
+              <span className="text-xs text-danger">检查失败：{updateState.message.slice(0, 60)}</span>
+              <button
+                onClick={() =>
+                  void openExternal('https://github.com/xiaowulai-s/StreamFlow/releases').catch(() => undefined)
+                }
+                className="rounded-lg border border-line px-3 py-2 text-xs text-ink transition-colors hover:border-stream hover:text-stream"
+              >
+                打开发布页手动下载
+              </button>
+            </>
           )}
         </div>
         {updateState.kind === 'available' && updateState.notes && (
@@ -609,7 +619,8 @@ export function SettingsPage() {
           </p>
         )}
         <p className="mt-2 text-[10px] text-slate">
-          更新源：GitHub Releases（安装包经签名验证后自动安装并重启）。
+          更新源：GitHub Releases（当前仓库为私有，应用内检查更新不可用，请通过发布页手动下载；
+          仓库转公开后自动恢复应用内更新）。
         </p>
       </div>
 
