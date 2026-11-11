@@ -10,6 +10,7 @@ import {
   getAppVersion,
   getAuthStatus,
   importAuth,
+  openExternal,
   openLoginWindow,
   completeLogin,
   logoutPlatform,
