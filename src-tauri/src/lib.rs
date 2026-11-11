@@ -7,11 +7,14 @@ use std::sync::Arc;
 use tokio::sync::RwLock;
 
 pub mod adapter;
+pub mod auth;
+pub mod commands;
+pub mod danmaku;
+pub mod database;
+pub mod db;
 pub mod platforms;
 pub mod queue;
-pub mod database;
 pub mod reverse;
-pub mod commands;
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
@@ -25,6 +28,9 @@ pub struct RoomInfo {
     /// 房间封面（接口提供时才有）
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub cover: Option<String>,
+    /// 本场开播时间（Unix 秒，接口提供时才有）
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub started_at: Option<i64>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -63,7 +69,9 @@ pub enum AdapterError {
     #[serde(rename = "parse_error")]
     ParseError(String),
     #[serde(rename = "external_only")]
-    ExternalOnly { url: String },
+    ExternalOnly {
+        url: String,
+    },
 }
 
 impl From<anyhow::Error> for AdapterError {

@@ -3,11 +3,11 @@ import type { Platform } from '../lib/types';
 import { PLATFORM_LABELS } from '../lib/types';
 
 const STYLES: Record<Platform, string> = {
-  bilibili: 'bg-pink-50 text-pink-600 border-pink-200',
-  douyu: 'bg-orange-50 text-orange-600 border-orange-200',
-  huya: 'bg-amber-50 text-amber-700 border-amber-200',
-  douyin: 'bg-gray-100 text-gray-700 border-gray-300',
-  kuaishou: 'bg-cyan-50 text-cyan-700 border-cyan-200',
+  bilibili: 'bg-pink-50 text-pink-600 border-pink-200 dark:bg-pink-500/15 dark:text-pink-300 dark:border-pink-500/30',
+  douyu: 'bg-orange-50 text-orange-600 border-orange-200 dark:bg-orange-500/15 dark:text-orange-300 dark:border-orange-500/30',
+  huya: 'bg-amber-50 text-amber-700 border-amber-200 dark:bg-amber-500/15 dark:text-amber-300 dark:border-amber-500/30',
+  douyin: 'bg-gray-100 text-gray-700 border-gray-300 dark:bg-gray-500/15 dark:text-gray-300 dark:border-gray-500/30',
+  kuaishou: 'bg-cyan-50 text-cyan-700 border-cyan-200 dark:bg-cyan-500/15 dark:text-cyan-300 dark:border-cyan-500/30',
 };
 
 export function PlatformBadge({ platform, size = 'md' }: { platform: Platform; size?: 'sm' | 'md' }) {

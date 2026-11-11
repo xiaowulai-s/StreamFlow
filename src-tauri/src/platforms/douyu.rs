@@ -4,7 +4,7 @@
 //! POST lapi/live/getH5Play 获取 flv 直播流（实测 error=0）。
 //! 注意：签名混淆参数每日轮换，纯 Rust 硬编码公式次日即失效（已实测），故必须动态执行 JS。
 
-use crate::{AdapterError, AdapterResult, LiveStatus, RoomInfo, StreamResult};
+use crate::{AdapterError, AdapterResult, LiveStatus, QualityOption, RoomInfo, StreamResult};
 use async_trait::async_trait;
 use reqwest::Client;
 use std::collections::HashMap;
@@ -12,11 +12,14 @@ use std::sync::Mutex;
 use std::time::Duration;
 
 const USER_AGENT: &str = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36";
+const MOBILE_USER_AGENT: &str = "Mozilla/5.0 (iPhone; CPU iPhone OS 16_0 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/16.0 Mobile/15E148 Safari/604.1";
 
 pub struct DouyuAdapter {
     client: Client,
     /// 别名 → 数字房间号 缓存，避免每次搜索重复抓页面
     alias_cache: Mutex<HashMap<String, String>>,
+    /// 平台登录 cookie（应用内登录后注入）
+    cookies: std::sync::RwLock<Option<String>>,
 }
 
 impl DouyuAdapter {
@@ -27,6 +30,15 @@ impl DouyuAdapter {
                 .build()
                 .unwrap(),
             alias_cache: Mutex::new(HashMap::new()),
+            cookies: std::sync::RwLock::new(None),
+        }
+    }
+
+    /// 为请求附加登录 cookie（未登录时不加）
+    fn authed(&self, rb: reqwest::RequestBuilder) -> reqwest::RequestBuilder {
+        match self.cookies.read().unwrap().clone() {
+            Some(c) if !c.is_empty() => rb.header("Cookie", c),
+            _ => rb,
         }
     }
 
@@ -43,8 +55,9 @@ impl DouyuAdapter {
         }
 
         let html = self.fetch_room_page(room_id).await?;
-        let numeric = extract_numeric_room_id(&html)
-            .ok_or_else(|| anyhow::anyhow!("别名 {} 未解析到数字房间号（房间可能不存在）", room_id))?;
+        let numeric = extract_numeric_room_id(&html).ok_or_else(|| {
+            anyhow::anyhow!("别名 {} 未解析到数字房间号（房间可能不存在）", room_id)
+        })?;
 
         if let Ok(mut cache) = self.alias_cache.lock() {
             cache.insert(room_id.to_string(), numeric.clone());
@@ -70,8 +83,7 @@ impl DouyuAdapter {
     async fn fetch_betard(&self, room_id: &str) -> anyhow::Result<serde_json::Value> {
         let url = format!("https://www.douyu.com/betard/{}/", room_id);
         let resp = self
-            .client
-            .get(&url)
+            .authed(self.client.get(&url))
             .header("User-Agent", USER_AGENT)
             .send()
             .await?
@@ -102,7 +114,41 @@ impl DouyuAdapter {
             } else {
                 LiveStatus::Sleeping
             },
-            cover: find_field_value(json, "room_pic").filter(|s| s.starts_with("http")),
+            cover: crate::adapter::normalize_cover_url(
+                find_field_value(json, "room_pic").filter(|s| s.starts_with("http")),
+            ),
+            started_at: None,
+        }
+    }
+
+    /// 搜索接口返回的 roomInfo 条目 → 兜底 RoomInfo（状态按索引标记）
+    fn room_info_from_rec(rid: &str, ri: &serde_json::Value) -> RoomInfo {
+        let started_at = ri["lastShowTime"]
+            .as_i64()
+            .or_else(|| ri["lastShowTime"].as_str().and_then(|s| s.parse().ok()));
+        RoomInfo {
+            id: rid.to_string(),
+            platform: "douyu".to_string(),
+            title: ri["description"]
+                .as_str()
+                .filter(|s| !s.is_empty())
+                .or_else(|| ri["cateName"].as_str())
+                .unwrap_or("Douyu Room")
+                .to_string(),
+            username: ri["nickName"].as_str().unwrap_or("Unknown").to_string(),
+            view_count: 0,
+            status: if ri["isLive"].as_i64() == Some(2) {
+                LiveStatus::Live
+            } else {
+                LiveStatus::Sleeping
+            },
+            cover: crate::adapter::normalize_cover_url(
+                ri["roomSrc"]
+                    .as_str()
+                    .filter(|s| s.starts_with("http"))
+                    .map(String::from),
+            ),
+            started_at,
         }
     }
 
@@ -179,19 +225,27 @@ impl DouyuAdapter {
             .lines()
             .rev()
             .find(|l| l.contains("sign="))
-            .ok_or_else(|| anyhow::anyhow!("签名输出异常: {}", stdout.chars().take(80).collect::<String>()))?
+            .ok_or_else(|| {
+                anyhow::anyhow!(
+                    "签名输出异常: {}",
+                    stdout.chars().take(80).collect::<String>()
+                )
+            })?
             .trim()
             .to_string();
         Ok(line)
     }
 
-    /// 获取 flv 直播流地址（签名与 swf_api 均要求数字房间号）
-    async fn get_flv_stream_url(&self, room_id: &str) -> anyhow::Result<String> {
-        let numeric_id = self.resolve_room_id(room_id).await?;
-        let sign_query = self.sign_via_js(&numeric_id).await?;
-
-        // sign_query 形如 "v=...&did=...&tt=...&sign=..."，拆成表单键值
-        let mut form: Vec<(&str, &str)> = vec![("rate", "0")];
+    /// 请求指定 rate 的 flv 流地址（签名是房间级的，rate 仅作为表单参数）
+    async fn fetch_play_at_rate(
+        &self,
+        numeric_id: &str,
+        sign_query: &str,
+        rate: i64,
+        referer_room: &str,
+    ) -> anyhow::Result<String> {
+        let rate_str = rate.to_string();
+        let mut form: Vec<(&str, &str)> = vec![("rate", rate_str.as_str())];
         for pair in sign_query.split('&') {
             if let Some((k, v)) = pair.split_once('=') {
                 form.push((k, v));
@@ -203,7 +257,7 @@ impl DouyuAdapter {
             .client
             .post(&url)
             .header("User-Agent", USER_AGENT)
-            .header("Referer", format!("https://www.douyu.com/{}", room_id))
+            .header("Referer", format!("https://www.douyu.com/{}", referer_room))
             .form(&form)
             .send()
             .await?
@@ -212,8 +266,11 @@ impl DouyuAdapter {
 
         let error = json.get("error").and_then(|v| v.as_i64()).unwrap_or(-1);
         if error != 0 {
-            let msg = json.get("msg").and_then(|v| v.as_str()).unwrap_or("unknown");
-            anyhow::bail!("getH5Play 返回错误 {}: {}", error, msg);
+            let msg = json
+                .get("msg")
+                .and_then(|v| v.as_str())
+                .unwrap_or("unknown");
+            anyhow::bail!("getH5Play(rate={}) 返回错误 {}: {}", rate, error, msg);
         }
 
         let rtmp_url = json
@@ -228,6 +285,97 @@ impl DouyuAdapter {
             .ok_or_else(|| anyhow::anyhow!("响应缺少 rtmp_live"))?;
 
         Ok(format!("{}/{}", rtmp_url.trim_end_matches('/'), rtmp_live))
+    }
+
+    /// 多档画质：rate=0（原画，默认/免费最高）+ multirates 其余档位并行请求。
+    /// 高档位（蓝光/真4K）若无权限会返回错误，自动跳过该档。
+    async fn get_flv_quality_list(
+        &self,
+        room_id: &str,
+    ) -> anyhow::Result<(String, Vec<QualityOption>)> {
+        let numeric_id = self.resolve_room_id(room_id).await?;
+        let sign_query = self.sign_via_js(&numeric_id).await?;
+
+        // 默认请求 rate=0，同时解析 multirates（各档位 {rate, name}）
+        let rate_str = "0";
+        let mut form: Vec<(&str, &str)> = vec![("rate", rate_str)];
+        for pair in sign_query.split('&') {
+            if let Some((k, v)) = pair.split_once('=') {
+                form.push((k, v));
+            }
+        }
+        let url = format!("https://www.douyu.com/lapi/live/getH5Play/{}", numeric_id);
+        let resp = self
+            .client
+            .post(&url)
+            .header("User-Agent", USER_AGENT)
+            .header("Referer", format!("https://www.douyu.com/{}", room_id))
+            .form(&form)
+            .send()
+            .await?
+            .error_for_status()?;
+        let json = resp.json::<serde_json::Value>().await?;
+        let error = json.get("error").and_then(|v| v.as_i64()).unwrap_or(-1);
+        if error != 0 {
+            anyhow::bail!(
+                "getH5Play 返回错误 {}: {}",
+                error,
+                json.get("msg").and_then(|v| v.as_str()).unwrap_or("unknown")
+            );
+        }
+        let data = json
+            .get("data")
+            .ok_or_else(|| anyhow::anyhow!("响应缺少 data"))?;
+        let rtmp_url = data
+            .get("rtmp_url")
+            .and_then(|v| v.as_str())
+            .ok_or_else(|| anyhow::anyhow!("响应缺少 rtmp_url"))?;
+        let rtmp_live = data
+            .get("rtmp_live")
+            .and_then(|v| v.as_str())
+            .ok_or_else(|| anyhow::anyhow!("响应缺少 rtmp_live"))?;
+        let default_url = format!("{}/{}", rtmp_url.trim_end_matches('/'), rtmp_live);
+
+        let multirates: Vec<(i64, String)> = data
+            .get("multirates")
+            .and_then(|v| v.as_array())
+            .map(|arr| {
+                arr.iter()
+                    .filter_map(|m| {
+                        Some((
+                            m.get("rate")?.as_i64()?,
+                            m.get("name")?.as_str()?.to_string(),
+                        ))
+                    })
+                    .collect()
+            })
+            .unwrap_or_default();
+
+        // 其余档位并行请求（rate=0 已拿到）
+        let others: Vec<(i64, String)> = multirates
+            .into_iter()
+            .filter(|(rate, _)| *rate != 0)
+            .take(5)
+            .collect();
+        let tasks = others
+            .iter()
+            .map(|(rate, _)| self.fetch_play_at_rate(&numeric_id, &sign_query, *rate, room_id));
+        let results = futures_util::future::join_all(tasks).await;
+        let mut qualities = vec![QualityOption {
+            label: "原画".to_string(),
+            url: default_url.clone(),
+        }];
+        for ((rate, name), result) in others.into_iter().zip(results) {
+            match result {
+                Ok(url) => {
+                    if !qualities.iter().any(|q| q.url == url) {
+                        qualities.push(QualityOption { label: name, url });
+                    }
+                }
+                Err(e) => log::warn!("斗鱼档位 {}({}) 不可用：{}", name, rate, e),
+            }
+        }
+        Ok((default_url, qualities))
     }
 }
 
@@ -291,6 +439,7 @@ impl Default for DouyuAdapter {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::adapter::PlatformAdapter;
 
     #[tokio::test]
     #[ignore = "依赖真实网络：调试别名解析链路"]
@@ -323,12 +472,45 @@ mod tests {
     #[ignore = "依赖真实网络：调试 betard 响应结构"]
     async fn debug_betard_24422() {
         let adapter = DouyuAdapter::new();
-        let json = adapter.fetch_betard("24422").await.expect("betard 请求失败");
+        let json = adapter
+            .fetch_betard("24422")
+            .await
+            .expect("betard 请求失败");
         let text = serde_json::to_string(&json).expect("序列化失败");
         println!("LEN: {}", text.len());
         println!("HEAD: {}", &text[..text.len().min(400)]);
         println!("has room_name: {}", text.contains("room_name"));
         println!("has nickname: {}", text.contains("nickname"));
+    }
+
+    /// 网络集成测试：关键词搜索应返回含房间条目的结果
+    #[tokio::test]
+    #[ignore] // 需要真实网络；cargo test -- --ignored 验证
+    async fn search_by_keyword_returns_rooms() {
+        let adapter = DouyuAdapter::new();
+        let results = adapter
+            .search("英雄联盟")
+            .await
+            .expect("斗鱼关键词搜索失败");
+        assert!(!results.is_empty(), "斗鱼关键词搜索应返回非空结果");
+        println!(
+            "前3条结果：{:?}",
+            results
+                .iter()
+                .take(3)
+                .map(|r| (r.id.clone(), r.username.clone(), r.status.clone()))
+                .collect::<Vec<_>>()
+        );
+    }
+
+    /// 房间号直达仍应可用
+    #[tokio::test]
+    #[ignore]
+    async fn search_by_room_id_douyu_still_works() {
+        let adapter = DouyuAdapter::new();
+        let results = adapter.search("9999").await.expect("斗鱼房间搜索失败");
+        assert_eq!(results.len(), 1);
+        assert_eq!(results[0].id, "9999");
     }
 }
 
@@ -339,17 +521,22 @@ impl crate::adapter::PlatformAdapter for DouyuAdapter {
     }
 
     fn capabilities(&self) -> crate::adapter::PlatformCapability {
-        crate::adapter::PlatformCapability::ROOM_DETAIL
+        crate::adapter::PlatformCapability::SEARCH
+            | crate::adapter::PlatformCapability::ROOM_DETAIL
             | crate::adapter::PlatformCapability::LIVE_STATUS
             | crate::adapter::PlatformCapability::STREAM_URLS
             | crate::adapter::PlatformCapability::EXTERNAL_ONLY
     }
 
     async fn search(&self, keyword: &str) -> anyhow::Result<Vec<RoomInfo>> {
-        // 平台搜索接口已下线；改为房间号/别名直达解析：
-        // 关键词 → 数字房间号（别名抓页面解析）→ betard 取真实房间信息
-        match self.resolve_room_id(keyword).await {
-            Ok(numeric_id) => match self.fetch_betard(&numeric_id).await {
+        let kw = keyword.trim();
+        if kw.is_empty() {
+            return Ok(vec![]);
+        }
+
+        // 1) 房间号/别名直达（如 9999、pdd），命中即返回唯一结果
+        if let Ok(numeric_id) = self.resolve_room_id(kw).await {
+            return match self.fetch_betard(&numeric_id).await {
                 Ok(json) => {
                     let mut info = self.parse_room_info(&numeric_id, &json);
                     info.id = numeric_id;
@@ -359,12 +546,65 @@ impl crate::adapter::PlatformAdapter for DouyuAdapter {
                     log::warn!("斗鱼房间 {} 信息获取失败（{}）", numeric_id, e);
                     Ok(vec![])
                 }
-            },
-            Err(e) => {
-                log::info!("斗鱼关键词 {} 无法解析为房间：{}", keyword, e);
-                Ok(vec![])
-            }
+            };
         }
+
+        // 2) 关键词搜索：apiv2 移动端网关（www 端 getSearchRecV2 仅返回推荐条目，
+        //    apiv2 端 recList 字段更全，与斗鱼官方搜索行为一致：无匹配主播时返回模糊结果）
+        let url = format!(
+            "https://apiv2.douyucdn.cn/japi/search/api/getSearchRecV2?kw={}&type=1&pn=1&rn=30",
+            urlencoding::encode(kw)
+        );
+        let resp = self
+            .authed(self.client.get(&url))
+            .header("User-Agent", MOBILE_USER_AGENT)
+            .header("Referer", "https://m.douyu.com/")
+            .send()
+            .await?
+            .error_for_status()?;
+        let json: serde_json::Value = resp.json().await?;
+        let rec_list = json["data"]["recList"]
+            .as_array()
+            .cloned()
+            .unwrap_or_default();
+        if rec_list.is_empty() {
+            log::info!("斗鱼关键词 {} 无搜索结果", kw);
+            return Ok(vec![]);
+        }
+
+        // 3) 搜索索引的 isLive 可能滞后；对前 SEARCH_VERIFY_COUNT 条并发请求
+        //    betard 校验真实状态/标题/封面
+        const SEARCH_VERIFY_COUNT: usize = 8;
+        let verify_ids: Vec<String> = rec_list
+            .iter()
+            .filter_map(|e| e["roomInfo"]["rid"].as_i64().map(|id| id.to_string()))
+            .take(SEARCH_VERIFY_COUNT)
+            .collect();
+        let details =
+            futures::future::join_all(verify_ids.iter().map(|id| self.fetch_betard(id))).await;
+        let mut verify_iter = details.into_iter();
+
+        let mut results: Vec<RoomInfo> = Vec::new();
+        for e in rec_list.iter() {
+            let rid = match e["roomInfo"]["rid"].as_i64() {
+                Some(id) => id.to_string(),
+                None => continue,
+            };
+            let info = match verify_iter.next() {
+                Some(Ok(json)) => {
+                    let mut info = self.parse_room_info(&rid, &json);
+                    info.id = rid.clone();
+                    info
+                }
+                Some(Err(err)) => {
+                    log::warn!("斗鱼搜索结果 {} 校验失败：{}，使用索引数据", rid, err);
+                    Self::room_info_from_rec(&rid, &e["roomInfo"])
+                }
+                None => Self::room_info_from_rec(&rid, &e["roomInfo"]),
+            };
+            results.push(info);
+        }
+        Ok(results)
     }
 
     async fn room_detail(&self, room_id: &str) -> anyhow::Result<RoomInfo> {
@@ -376,12 +616,13 @@ impl crate::adapter::PlatformAdapter for DouyuAdapter {
     }
 
     async fn stream_urls(&self, room_id: &str) -> AdapterResult {
-        match self.get_flv_stream_url(room_id).await {
-            Ok(url) => Ok(StreamResult {
+        match self.get_flv_quality_list(room_id).await {
+            Ok((_default_url, qualities)) => Ok(StreamResult {
                 platform: "douyu".to_string(),
                 room_id: room_id.to_string(),
-                url: vec![url],
-                quality: vec![],
+                // 首项 = 原画（rate=0，默认/免费最高），与 quality[0] 一致
+                url: qualities.iter().map(|q| q.url.clone()).collect(),
+                quality: qualities,
             }),
             Err(e) => {
                 log::warn!("斗鱼流获取失败（{}），走外部浏览器兜底", e);
@@ -390,6 +631,145 @@ impl crate::adapter::PlatformAdapter for DouyuAdapter {
                 })
             }
         }
+    }
+
+    /// 热门直播间（gapi/rkc/directory/mixList，实测无需登录）
+    /// 取首页前 12 条；封面在 rs1 字段（avif/jpg，WebView2 均支持）
+    async fn hot_rooms(&self) -> anyhow::Result<Vec<RoomInfo>> {
+        let url = "https://www.douyu.com/gapi/rkc/directory/mixList/0_0/1";
+        let resp = self
+            .authed(self.client.get(url))
+            .header("User-Agent", USER_AGENT)
+            .header("Referer", "https://www.douyu.com/")
+            .send()
+            .await?
+            .error_for_status()?;
+        let json: serde_json::Value = resp.json().await?;
+
+        let mut rooms = Vec::new();
+        if let Some(items) = json.pointer("/data/rl").and_then(|v| v.as_array()) {
+            for item in items.iter().take(12) {
+                // rid/ol 可能是数字也可能是字符串，宽容解析
+                let id = match &item["rid"] {
+                    serde_json::Value::Number(n) => n.to_string(),
+                    serde_json::Value::String(s) => s.clone(),
+                    _ => continue,
+                };
+                let view_count = match &item["ol"] {
+                    serde_json::Value::Number(n) => n.as_u64().unwrap_or(0),
+                    serde_json::Value::String(s) => s.parse().unwrap_or(0),
+                    _ => 0,
+                };
+                rooms.push(RoomInfo {
+                    id,
+                    platform: "douyu".to_string(),
+                    title: item["rn"].as_str().unwrap_or("Douyu Live").to_string(),
+                    username: item["nn"].as_str().unwrap_or("Unknown").to_string(),
+                    view_count,
+                    status: LiveStatus::Live,
+                    cover: crate::adapter::normalize_cover_url(
+                        item["rs1"]
+                            .as_str()
+                            .filter(|s| s.starts_with("http"))
+                            .map(String::from),
+                    ),
+                    started_at: None,
+                });
+            }
+        }
+        Ok(rooms)
+    }
+
+    /// 关注列表（wgapi follow/list，需登录 cookie）
+    /// 返回已关注主播的直播间（含未开播），最多 5 页
+    async fn follows(&self) -> anyhow::Result<Vec<RoomInfo>> {
+        let cookie = self
+            .cookies
+            .read()
+            .unwrap()
+            .clone()
+            .filter(|c| !c.is_empty())
+            .ok_or_else(|| anyhow::anyhow!("未登录斗鱼，请先在设置中心扫码登录"))?;
+
+        let mut rooms: Vec<RoomInfo> = Vec::new();
+        let mut seen = std::collections::HashSet::new();
+        for page in 1..=5 {
+            let url = format!(
+                "https://www.douyu.com/wgapi/livenc/liveweb/follow/list?page={}&sort=0&cid1=0",
+                page
+            );
+            let resp = self
+                .client
+                .get(&url)
+                .header("User-Agent", USER_AGENT)
+                .header("Referer", "https://www.douyu.com/directory/myFollow")
+                .header("Cookie", &cookie)
+                .send()
+                .await?
+                .error_for_status()?;
+            let json: serde_json::Value = resp.json().await?;
+            if json.get("error").and_then(|v| v.as_i64()) != Some(0) {
+                anyhow::bail!("斗鱼关注列表返回异常: {}", json["msg"]);
+            }
+            let list = json
+                .pointer("/data/list")
+                .and_then(|v| v.as_array())
+                .cloned()
+                .unwrap_or_default();
+            if list.is_empty() {
+                break;
+            }
+            let count = list.len();
+            let limit = json
+                .pointer("/data/limit")
+                .and_then(|v| v.as_i64())
+                .unwrap_or(count as i64);
+            for item in &list {
+                let id = match &item["room_id"] {
+                    serde_json::Value::Number(n) => n.to_string(),
+                    serde_json::Value::String(s) => s.clone(),
+                    _ => continue,
+                };
+                if !seen.insert(id.clone()) {
+                    continue;
+                }
+                let username = item["nickname"].as_str().unwrap_or("Unknown").to_string();
+                let title = item["room_name"]
+                    .as_str()
+                    .filter(|s| !s.is_empty())
+                    .map(String::from)
+                    .unwrap_or_else(|| format!("{} 的直播间", username));
+                let view_count = match &item["online"] {
+                    serde_json::Value::Number(n) => n.as_u64().unwrap_or(0),
+                    serde_json::Value::String(s) => s.parse().unwrap_or(0),
+                    _ => 0,
+                };
+                // show_status: 1=直播中 2=未开播
+                let live = item["show_status"].as_i64() == Some(1);
+                let cover_url = item["rs16_avif"]
+                    .as_str()
+                    .filter(|s| s.starts_with("http"))
+                    .or_else(|| item["room_src"].as_str().filter(|s| s.starts_with("http")));
+                rooms.push(RoomInfo {
+                    id,
+                    platform: "douyu".to_string(),
+                    title,
+                    username,
+                    view_count,
+                    status: if live {
+                        LiveStatus::Live
+                    } else {
+                        LiveStatus::Sleeping
+                    },
+                    cover: crate::adapter::normalize_cover_url(cover_url.map(String::from)),
+                    started_at: item["show_time"].as_i64(),
+                });
+            }
+            if (count as i64) < limit || limit <= 0 {
+                break;
+            }
+        }
+        Ok(rooms)
     }
 
     async fn live_status(&self, room_id: &str) -> anyhow::Result<LiveStatus> {
@@ -402,5 +782,9 @@ impl crate::adapter::PlatformAdapter for DouyuAdapter {
     /// 斗鱼弹幕协议未接入，返回 None（前端按无弹幕处理）
     async fn danmaku_url(&self, _room_id: &str) -> Option<String> {
         None
+    }
+
+    fn set_cookies(&self, cookie: Option<String>) {
+        *self.cookies.write().unwrap() = cookie;
     }
 }

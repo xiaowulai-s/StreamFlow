@@ -1,20 +1,27 @@
 [package]
 name = "streamflow"
-version = "0.1.0"
+version = "0.0.1"
 edition = "2021"
 
 [lib]
 name = "streamflow_lib"
 crate-type = ["staticlib", "cdylib", "rlib"]
 
+[features]
+# 关键：启用后二进制使用内嵌前端资源（tauri://）；
+# 不启用时即使 release 构建也会连接 devUrl(localhost:5173)，
+# 独立分发必须带此 feature：cargo build --release --features custom-protocol
+custom-protocol = ["tauri/custom-protocol"]
+
 [build-dependencies]
 tauri-build = { version = "2.0", features = [] }
 
 [dependencies]
 tauri = { version = "2.0", features = ["tray-icon"] }
+tauri-plugin-updater = "2"
 serde = { version = "1", features = ["derive"] }
 serde_json = "1.0"
-tokio = { version = "1", features = ["rt-multi-thread", "macros", "sync", "time"] }
+tokio = { version = "1", features = ["rt-multi-thread", "macros", "sync", "time", "net", "io-util"] }
 sqlx = { version = "0.7", features = ["sqlite", "runtime-tokio-native-tls", "macros", "chrono"] }
 sea-orm = { version = "1.0", features = ["sqlx-sqlite", "runtime-tokio-native-tls", "macros", "chrono", "with-chrono"] }
 anyhow = "1.0"
@@ -32,3 +39,17 @@ chrono = { version = "0.4", features = ["serde"] }
 tracing = "0.1"
 tracing-subscriber = { version = "0.3", features = ["env-filter", "fmt"] }
 uuid = { version = "1.10", features = ["v4"] }
+# 扫码登录：后端直接生成二维码 SVG（免前端依赖）
+qrcode = { version = "0.14", default-features = false, features = ["svg"] }
+# 虎牙订阅页 HTML 解析（关注列表导入）
+regex = "1"
+# 弹幕：WebSocket（B站/虎牙）+ B站 zlib 解压
+# 与 reqwest 一致使用 native-tls，避免 rustls 需要手动安装 CryptoProvider
+tokio-tungstenite = { version = "0.24", features = ["native-tls"] }
+futures-util = "0.3"
+flate2 = "1"
+
+[target.'cfg(windows)'.dependencies]
+# 登录 cookie 捕获：直接读 WebView2 CookieManager（版本需与 wry 0.57 对齐）
+webview2-com = "0.39"
+windows-core = "0.62"

@@ -35,3 +35,6 @@ huya_fix.txt
 huya_replacement.rs
 write_huya.js
 StreamFlow_产品方案.html
+
+# WorkBuddy 会话数据
+.workbuddy/

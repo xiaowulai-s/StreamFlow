@@ -4,17 +4,17 @@ import { useApp, type Page } from '../context';
 import {
   LogoMark,
   HomeIcon,
-  CompassIcon,
   StarIcon,
   HistoryIcon,
   PlayIcon,
+  SettingsIcon,
 } from './icons';
 
 const NAV_ITEMS: { page: Page; label: string; icon: (p: { size?: number }) => ReactElement }[] = [
   { page: 'home', label: '首页', icon: HomeIcon },
-  { page: 'discover', label: '直播发现', icon: CompassIcon },
   { page: 'favorites', label: '我的关注', icon: StarIcon },
   { page: 'history', label: '观看历史', icon: HistoryIcon },
+  { page: 'settings', label: '设置中心', icon: SettingsIcon },
 ];
 
 export function SideNav() {

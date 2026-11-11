@@ -168,10 +168,7 @@ pub fn build_stream_url(
         params.push(("t".to_string(), t.to_string()));
     }
 
-    let query: Vec<String> = params
-        .iter()
-        .map(|(k, v)| format!("{}={}", k, v))
-        .collect();
+    let query: Vec<String> = params.iter().map(|(k, v)| format!("{}={}", k, v)).collect();
     Some(format!(
         "{}/{}.{}?{}",
         base_url,

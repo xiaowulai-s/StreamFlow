@@ -6,7 +6,7 @@
 )]
 
 use streamflow_lib::adapter::AdapterRegistry;
-use streamflow_lib::{commands, AppState, Settings};
+use streamflow_lib::{auth, commands, db, AppState, Settings};
 use tauri::Manager;
 
 #[tauri::command]
@@ -77,6 +77,7 @@ fn run() -> Result<(), Box<dyn std::error::Error>> {
     };
 
     tauri::Builder::default()
+        .plugin(tauri_plugin_updater::Builder::new().build())
         .manage(state)
         .invoke_handler(tauri::generate_handler![
             greet,
@@ -85,9 +86,52 @@ fn run() -> Result<(), Box<dyn std::error::Error>> {
             commands::get_stream_urls,
             commands::get_live_status,
             commands::get_hot_rooms,
+            commands::get_platform_follows,
+            commands::export_auth_file,
+            commands::import_auth_file,
+            commands::open_external,
+            commands::check_platform_connectivity,
+            commands::clear_webview_cache,
+            auth::open_login_window,
+            auth::complete_login,
+            auth::get_auth_status,
+            auth::logout,
+            auth::start_qr_login,
+            auth::poll_qr_login,
+            db::load_favorites,
+            db::save_favorites,
+            db::load_history,
+            db::save_history,
+            db::get_setting,
+            db::set_setting,
+            streamflow_lib::danmaku::start_danmaku,
+            streamflow_lib::danmaku::stop_danmaku,
         ])
         .setup(|app| {
-            // 窗口配置 create=false，改为手动创建并带重试：
+            // 初始化 SQLite（app_local_data_dir/streamflow.db）
+            let data_dir = app.path().app_local_data_dir()?;
+            std::fs::create_dir_all(&data_dir)?;
+            if let Err(e) = tauri::async_runtime::block_on(db::init(
+                data_dir.join("streamflow.db").to_string_lossy().as_ref(),
+            )) {
+                log::error!("SQLite 初始化失败: {}", e);
+            }
+
+            // 启动时加载已保存的平台登录会话并注入适配器
+            let state = app.state::<AppState>();
+            auth::load_into_adapters(app.handle(), &state);
+
+            // 诊断开关：STREAMFLOW_DEBUG_LOGIN=huya|douyu|bilibili 时启动后自动打开
+            // 对应平台的登录窗口，用于排查 WebView2 白屏；正常启动不触发。
+            if let Ok(platform) = std::env::var("STREAMFLOW_DEBUG_LOGIN") {
+                let handle = app.handle().clone();
+                tauri::async_runtime::spawn(async move {
+                    if let Err(e) = auth::open_login_window(handle, platform).await {
+                        log::warn!("调试登录窗口打开失败: {}", e);
+                    }
+                });
+            }
+
             // 上个实例的 WebView2 浏览器进程组优雅关闭需要数秒，期间快速重启会报
             // 0x800700AA（资源占用中）。退避重试；多次失败后备份 UDF 再重建。
             let window_config = app

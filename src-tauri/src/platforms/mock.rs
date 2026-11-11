@@ -1,7 +1,7 @@
 //! Mock 平台适配器
 //! 用于离线开发和测试
 
-use crate::{LiveStatus, RoomInfo, StreamResult, QualityOption};
+use crate::{LiveStatus, QualityOption, RoomInfo, StreamResult};
 use async_trait::async_trait;
 use std::time::Duration;
 use tokio::time::sleep;
@@ -28,14 +28,14 @@ impl crate::adapter::PlatformAdapter for MockAdapter {
     fn name(&self) -> &'static str {
         "mock"
     }
-    
+
     fn capabilities(&self) -> crate::adapter::PlatformCapability {
         crate::adapter::PlatformCapability::all()
     }
-    
+
     async fn search(&self, keyword: &str) -> anyhow::Result<Vec<RoomInfo>> {
         sleep(Duration::from_millis(100)).await;
-        
+
         Ok(vec![
             RoomInfo {
                 id: format!("mock_{}", keyword),
@@ -45,6 +45,7 @@ impl crate::adapter::PlatformAdapter for MockAdapter {
                 view_count: 1000,
                 status: LiveStatus::Live,
                 cover: None,
+                started_at: None,
             },
             RoomInfo {
                 id: "mock_2".to_string(),
@@ -54,13 +55,14 @@ impl crate::adapter::PlatformAdapter for MockAdapter {
                 view_count: 500,
                 status: LiveStatus::Sleeping,
                 cover: None,
+                started_at: None,
             },
         ])
     }
-    
+
     async fn room_detail(&self, room_id: &str) -> anyhow::Result<RoomInfo> {
         sleep(Duration::from_millis(50)).await;
-        
+
         Ok(RoomInfo {
             id: room_id.to_string(),
             platform: self.name.clone(),
@@ -68,13 +70,14 @@ impl crate::adapter::PlatformAdapter for MockAdapter {
             username: "Mock Master".to_string(),
             view_count: 1234,
             status: LiveStatus::Live,
-                cover: None,
+            cover: None,
+            started_at: None,
         })
     }
-    
+
     async fn stream_urls(&self, room_id: &str) -> crate::AdapterResult {
         sleep(Duration::from_millis(100)).await;
-        
+
         Ok(StreamResult {
             platform: self.name.clone(),
             room_id: room_id.to_string(),
@@ -94,20 +97,20 @@ impl crate::adapter::PlatformAdapter for MockAdapter {
             ],
         })
     }
-    
+
     async fn live_status(&self, _room_id: &str) -> anyhow::Result<LiveStatus> {
         let now = std::time::SystemTime::now()
             .duration_since(std::time::UNIX_EPOCH)
             .unwrap()
             .as_secs();
-            
+
         if now % 2 == 0 {
             Ok(LiveStatus::Live)
         } else {
             Ok(LiveStatus::Sleeping)
         }
     }
-    
+
     async fn danmaku_url(&self, _room_id: &str) -> Option<String> {
         Some("wss://mock.danmaku.url/ws".to_string())
     }

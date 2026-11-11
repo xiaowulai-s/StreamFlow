@@ -2,9 +2,24 @@
 export type Status = 'live' | 'sleeping' | 'error';
 
 const CONFIG: Record<Status, { label: string; dot: string; text: string; bg: string }> = {
-  live: { label: '直播中', dot: 'bg-success', text: 'text-success', bg: 'bg-emerald-50' },
-  sleeping: { label: '休眠', dot: 'bg-slate', text: 'text-slate', bg: 'bg-gray-100' },
-  error: { label: '获取失败', dot: 'bg-danger', text: 'text-danger', bg: 'bg-red-50' },
+  live: {
+    label: '直播中',
+    dot: 'bg-success',
+    text: 'text-success',
+    bg: 'bg-emerald-50 dark:bg-emerald-500/15',
+  },
+  sleeping: {
+    label: '休眠',
+    dot: 'bg-slate',
+    text: 'text-slate',
+    bg: 'bg-gray-100 dark:bg-slate/15',
+  },
+  error: {
+    label: '获取失败',
+    dot: 'bg-danger',
+    text: 'text-danger',
+    bg: 'bg-red-50 dark:bg-red-500/15',
+  },
 };
 
 export function StatusBadge({ status, size = 'md' }: { status: Status; size?: 'sm' | 'md' }) {

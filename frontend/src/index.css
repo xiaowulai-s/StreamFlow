@@ -16,8 +16,24 @@
   --color-success: #20a477;  /* 直播中等正向状态 */
   --color-warning: #e7a23b;  /* 需要关注 */
   --color-danger: #e05b65;   /* 错误/异常 */
+  --color-stage: #05070b;    /* 播放器/封面底色（不随主题变化） */
 
   --radius-card: 12px;
+}
+
+/* 深色主题：覆盖设计令牌，组件无需逐处改色 */
+.dark {
+  --color-stream: #4c9bff;
+  --color-flow: #35c8f0;
+  --color-violet: #9a8bff;
+  --color-ink: #e8eef7;
+  --color-slate: #95a3b8;
+  --color-canvas: #0b1017;
+  --color-surface: #141b25;
+  --color-line: #263243;
+  --color-success: #34c98d;
+  --color-warning: #f0b45c;
+  --color-danger: #f07a84;
 }
 
 /* 品牌渐变：仅用于品牌图形与主 CTA，不铺满界面 */
@@ -37,6 +53,11 @@ body {
   margin: 0;
   padding: 0;
   overflow: hidden;
+  transition: background-color 160ms ease, color 160ms ease;
+}
+
+::selection {
+  background: color-mix(in srgb, var(--color-stream) 30%, transparent);
 }
 
 /* 自定义滚动条（产品方案：轻盈、清晰） */
@@ -53,4 +74,10 @@ body {
 }
 ::-webkit-scrollbar-thumb:hover {
   background: rgba(23, 32, 51, 0.28);
+}
+.dark ::-webkit-scrollbar-thumb {
+  background: rgba(232, 238, 247, 0.16);
+}
+.dark ::-webkit-scrollbar-thumb:hover {
+  background: rgba(232, 238, 247, 0.3);
 }

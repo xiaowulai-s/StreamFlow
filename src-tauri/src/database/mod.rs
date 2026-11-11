@@ -3,8 +3,8 @@
 
 use sea_orm::DatabaseConnection;
 
-pub mod rooms;
 pub mod history;
+pub mod rooms;
 pub mod settings;
 
 pub async fn init_db(db_path: &str) -> Result<DatabaseConnection, sea_orm::DbErr> {

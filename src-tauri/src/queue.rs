@@ -1,7 +1,7 @@
 //! 任务队列 - 速率限制
 
-use std::sync::Arc;
 use std::sync::atomic::{AtomicU64, Ordering};
+use std::sync::Arc;
 use tokio::sync::Semaphore;
 
 #[derive(Debug, Clone)]
@@ -15,11 +15,8 @@ impl TaskQueue {
             rate_limiter: Arc::new(RateLimiter::new(max_concurrent, min_interval_ms)),
         }
     }
-    
-    pub async fn spawn<T: Send + 'static>(
-        &self,
-        _task: impl FnOnce() -> T + Send + 'static,
-    ) -> T {
+
+    pub async fn spawn<T: Send + 'static>(&self, _task: impl FnOnce() -> T + Send + 'static) -> T {
         let _permit = self.rate_limiter.acquire().await;
         _task()
     }
@@ -42,18 +39,18 @@ impl RateLimiter {
             request_count: AtomicU64::new(0),
         }
     }
-    
+
     pub async fn acquire(&self) -> tokio::sync::OwnedSemaphorePermit {
         let permit = self.semaphore.clone().acquire_owned().await.ok().unwrap();
-        
+
         let mut last = self.last_request.lock().unwrap();
         let elapsed = last.elapsed();
-        
+
         if elapsed < self.min_interval {
             let sleep_duration = self.min_interval - elapsed;
             drop(permit);
             tokio::time::sleep(sleep_duration).await;
-            
+
             // 循环处理避免递归
             let mut attempts = 0;
             loop {
@@ -73,7 +70,7 @@ impl RateLimiter {
                 }
             }
         }
-        
+
         *last = std::time::Instant::now();
         permit
     }
@@ -82,7 +79,7 @@ impl RateLimiter {
 #[cfg(test)]
 mod tests {
     use super::*;
-    
+
     #[tokio::test]
     async fn test_rate_limiter() {
         let limiter = RateLimiter::new(2, 100);

@@ -1,52 +1,218 @@
-// 首页：关注开播条 + 热门直播 + 平台快捷入口 + 最近观看（产品方案 5.2）
-import { useEffect, useState } from 'react';
+// 首页：关注开播 + 最近观看（搜索与热门由顶部搜索/平台页承担）
+import { useCallback, useEffect, useRef, useState } from 'react';
 import { useApp } from '../context';
-import { getHotRooms } from '../lib/tauri';
-import { PLATFORM_LABELS, PLATFORM_STREAM_SUPPORT, type Platform, type Room } from '../lib/types';
+import { openExternal, getSetting, searchRooms } from '../lib/tauri';
+import { PLATFORM_LABELS, platformRoomUrl, type Platform, type Room } from '../lib/types';
 import { LiveCard } from '../components/LiveCard';
 import { EmptyState } from '../components/EmptyState';
 import { StatusBadge } from '../components/StatusBadge';
 
-const PLATFORMS: Platform[] = ['bilibili', 'douyu', 'huya', 'douyin', 'kuaishou'];
+/** 已验证可搜索的平台 */
+const SEARCH_PLATFORMS: Platform[] = ['huya', 'douyu', 'bilibili', 'douyin', 'kuaishou'];
+
+type PlatformFilter = 'all' | Platform;
+type SortMode = 'hot' | 'latest';
 
 export function HomePage() {
-  const { favorites, history, navigate, watch, setGlobalKeyword } = useApp();
-  const liveFavorites = favorites.filter((f) => f.status === 'live');
+  const { favorites, history, navigate, watch, globalKeyword, setGlobalKeyword, hiddenFollowPlatforms, disabledPlatforms } = useApp();
+  const keyword = globalKeyword.trim();
+  const searching = keyword.length > 0;
+
+  /** 展示中的关注（用户可在关注页/设置中心按平台隐藏） */
+  const shownFavorites = favorites.filter((f) => !hiddenFollowPlatforms.has(f.platform));
+  const liveFavorites = shownFavorites.filter((f) => f.status === 'live');
   const recent = history.slice(0, 4);
 
-  // 热门直播（聚合各平台推荐列表，B 站已接入）
-  const [hot, setHot] = useState<Room[] | null>(null);
-  useEffect(() => {
-    let cancelled = false;
-    getHotRooms()
-      .then((rooms) => {
-        if (!cancelled) setHot(rooms.slice(0, 12));
-      })
-      .catch(() => {
-        if (!cancelled) setHot([]);
-      });
-    return () => {
-      cancelled = true;
-    };
-  }, []);
+  // 搜索结果
+  const [results, setResults] = useState<Room[] | null>(null);
+  const [searchLoading, setSearchLoading] = useState(false);
+  const [searchError, setSearchError] = useState<string | null>(null);
+  const [filter, setFilter] = useState<PlatformFilter>('all');
+  const [sort, setSort] = useState<SortMode>('hot');
+  const lastSearch = useRef('');
 
+  const doSearch = useCallback(async (kw: string) => {
+    setSearchLoading(true);
+    setSearchError(null);
+    // 仅搜索已启用的平台（6.1 平台管理）
+    const targets = SEARCH_PLATFORMS.filter((p) => !disabledPlatforms.has(p));
+    const settled = await Promise.allSettled(
+      (targets.length > 0 ? targets : SEARCH_PLATFORMS).map((p) => searchRooms(p, kw))
+    );
+    const rooms: Room[] = [];
+    const errors: string[] = [];
+    for (const r of settled) {
+      if (r.status === 'fulfilled' && Array.isArray(r.value)) {
+        rooms.push(...r.value);
+      } else if (r.status === 'rejected') {
+        errors.push(String(r.reason));
+      }
+    }
+    if (rooms.length === 0 && errors.length === SEARCH_PLATFORMS.length) {
+      setSearchError(errors[0] ?? '搜索失败');
+      setResults(null);
+    } else {
+      setResults(rooms);
+    }
+    setSearchLoading(false);
+  }, [disabledPlatforms]);
+
+  // 关键词变化 → 执行搜索；清空 → 回到浏览态
+  useEffect(() => {
+    if (!keyword) {
+      setResults(null);
+      setSearchError(null);
+      setFilter('all');
+      setSort('hot');
+      lastSearch.current = '';
+      return;
+    }
+    if (lastSearch.current === keyword) return;
+    lastSearch.current = keyword;
+    doSearch(keyword);
+  }, [keyword, doSearch]);
+
+  const hasStartedAt = (results ?? []).some((r) => typeof r.startedAt === 'number');
+  useEffect(() => {
+    if (!hasStartedAt && sort !== 'hot') setSort('hot');
+  }, [hasStartedAt, sort]);
+
+  // 默认打开方式（6.2）：external 时卡片点击直接调系统浏览器，不进观看页
+  const [openMode, setOpenMode] = useState<'internal' | 'external'>('internal');
+  useEffect(() => {
+    void getSetting('default_open_mode')
+      .then((v) => {
+        if (v === 'internal' || v === 'external') setOpenMode(v);
+      })
+      .catch(() => undefined);
+  }, []);
+  const handleCardClick = useCallback(
+    (room: Room) => {
+      if (openMode === 'external') {
+        void openExternal(platformRoomUrl(room.platform, room.id)).catch(() => undefined);
+        return;
+      }
+      watch(room);
+    },
+    [openMode, watch],
+  );
+
+  const filtered =
+    results && filter !== 'all' ? results.filter((r) => r.platform === filter) : results;
+  const sorted = filtered
+    ? [...filtered].sort((a, b) =>
+        sort === 'hot'
+          ? b.viewCount - a.viewCount
+          : (b.startedAt ?? 0) - (a.startedAt ?? 0),
+      )
+    : null;
+
+  // ---------------- 搜索态 ----------------
+  if (searching) {
+    return (
+      <div className="space-y-5">
+        <div className="flex items-start justify-between gap-4">
+          <div>
+            <h1 className="text-lg font-bold text-ink">搜索「{keyword}」</h1>
+            <p className="mt-1 text-xs text-slate">
+              跨平台搜索虎牙 / 斗鱼 / B站 / 抖音 / 快手；修改顶部关键词后回车可重新搜索
+            </p>
+          </div>
+          <button
+            onClick={() => setGlobalKeyword('')}
+            className="shrink-0 rounded-lg border border-line px-3 py-1.5 text-xs text-slate transition-colors hover:border-stream hover:text-stream"
+          >
+            清除搜索
+          </button>
+        </div>
+
+        {results && results.length > 0 && (
+          <div className="flex flex-wrap items-center gap-2">
+            {(['all', ...SEARCH_PLATFORMS] as PlatformFilter[]).map((p) => {
+              const count =
+                p === 'all' ? results.length : results.filter((r) => r.platform === p).length;
+              if (p !== 'all' && count === 0) return null;
+              return (
+                <button
+                  key={p}
+                  onClick={() => setFilter(p)}
+                  className={`rounded-full border px-3 py-1 text-xs transition-colors ${
+                    filter === p
+                      ? 'border-stream bg-stream/15 font-medium text-stream'
+                      : 'border-line bg-surface text-slate hover:text-ink'
+                  }`}
+                >
+                  {p === 'all' ? '全部' : PLATFORM_LABELS[p]}（{count}）
+                </button>
+              );
+            })}
+            <span className="mx-1 h-4 w-px bg-line" />
+            {(['hot', 'latest'] as SortMode[]).map((mode) => {
+              if (mode === 'latest' && !hasStartedAt) return null;
+              return (
+                <button
+                  key={mode}
+                  onClick={() => setSort(mode)}
+                  className={`rounded-full border px-3 py-1 text-xs transition-colors ${
+                    sort === mode
+                      ? 'border-stream bg-stream/10 text-stream'
+                      : 'border-line bg-surface text-slate hover:text-ink'
+                  }`}
+                >
+                  {mode === 'hot' ? '热度' : '最新开播'}
+                </button>
+              );
+            })}
+          </div>
+        )}
+
+        {searchError && <EmptyState title="搜索失败" description={searchError} />}
+        {!searchError && (searchLoading || (!results && !searchError)) && (
+          <div className="grid grid-cols-4 gap-4">
+            {Array.from({ length: 4 }).map((_, i) => (
+              <div key={i} className="animate-pulse rounded-card border border-line bg-surface p-3">
+                <div className="aspect-video rounded-lg bg-canvas" />
+                <div className="mt-2.5 h-4 w-3/4 rounded bg-canvas" />
+                <div className="mt-2 h-3 w-1/2 rounded bg-canvas" />
+              </div>
+            ))}
+          </div>
+        )}
+        {!searchError && !searchLoading && results && results.length === 0 && (
+          <EmptyState
+            title="未找到相关直播间"
+            description="请尝试其他关键词，或直接输入房间号直达"
+          />
+        )}
+        {!searchError && !searchLoading && sorted && sorted.length > 0 && (
+          <div className="grid grid-cols-4 gap-4">
+            {sorted.map((r) => (
+              <LiveCard key={`${r.platform}-${r.id}`} room={r} onClick={handleCardClick} />
+            ))}
+          </div>
+        )}
+      </div>
+    );
+  }
+
+  // ---------------- 浏览态 ----------------
   return (
     <div className="space-y-6">
       {/* 关注开播条 */}
       <section>
         <div className="mb-3 flex items-center justify-between">
           <h2 className="text-base font-bold text-ink">关注开播</h2>
-          {favorites.length > 0 && (
+          {shownFavorites.length > 0 && (
             <button onClick={() => navigate('favorites')} className="text-xs text-stream hover:underline">
-              全部关注（{favorites.length}）→
+              全部关注（{shownFavorites.length}）→
             </button>
           )}
         </div>
         {liveFavorites.length === 0 ? (
           <div className="rounded-card border border-line bg-surface px-5 py-4 text-sm text-slate">
-            {favorites.length === 0
+            {shownFavorites.length === 0
               ? '还没有关注的主播——在直播间里点击「收藏」后，开播状态会显示在这里'
-              : `已关注 ${favorites.length} 位主播，当前均未开播`}
+              : `已关注 ${shownFavorites.length} 位主播，当前均未开播`}
           </div>
         ) : (
           <div className="space-y-2">
@@ -66,65 +232,6 @@ export function HomePage() {
         )}
       </section>
 
-      {/* 热门直播（聚合平台推荐列表） */}
-      <section>
-        <div className="mb-3 flex items-center justify-between">
-          <h2 className="text-base font-bold text-ink">热门直播</h2>
-          <button
-            onClick={() => {
-              setGlobalKeyword('');
-              navigate('discover');
-            }}
-            className="text-xs text-stream hover:underline"
-          >
-            去发现 →
-          </button>
-        </div>
-        {hot === null ? (
-          <div className="grid grid-cols-4 gap-4">
-            {Array.from({ length: 4 }).map((_, i) => (
-              <div key={i} className="animate-pulse rounded-card border border-line bg-surface p-3">
-                <div className="aspect-video rounded-lg bg-canvas" />
-                <div className="mt-2.5 h-4 w-3/4 rounded bg-canvas" />
-                <div className="mt-2 h-3 w-1/2 rounded bg-canvas" />
-              </div>
-            ))}
-          </div>
-        ) : hot.length === 0 ? (
-          <div className="rounded-card border border-line bg-surface px-5 py-4 text-sm text-slate">
-            热门列表暂时不可用，稍后刷新重试
-          </div>
-        ) : (
-          <div className="grid grid-cols-4 gap-4">
-            {hot.map((r) => (
-              <LiveCard key={`hot-${r.platform}-${r.id}`} room={r} onClick={watch} />
-            ))}
-          </div>
-        )}
-      </section>
-
-      {/* 平台快捷入口 */}
-      <section>
-        <h2 className="mb-3 text-base font-bold text-ink">平台</h2>
-        <div className="grid grid-cols-5 gap-3">
-          {PLATFORMS.map((p) => (
-            <button
-              key={p}
-              onClick={() => {
-                setGlobalKeyword('');
-                navigate('discover');
-              }}
-              className="rounded-card border border-line bg-surface p-4 text-left transition-all hover:-translate-y-0.5 hover:shadow-md"
-            >
-              <div className="text-lg font-bold text-ink">{PLATFORM_LABELS[p]}</div>
-              <div className="mt-1 text-[11px] text-slate">
-                {PLATFORM_STREAM_SUPPORT[p] ? '站内播放已验证' : '待接入验证'}
-              </div>
-            </button>
-          ))}
-        </div>
-      </section>
-
       {/* 最近观看 */}
       <section>
         <div className="mb-3 flex items-center justify-between">
@@ -138,13 +245,12 @@ export function HomePage() {
         {recent.length === 0 ? (
           <EmptyState
             title="暂无观看记录"
-            description="去「直播发现」用房间号直达直播间，或从热门直播里挑选"
-            action={{ label: '去发现', onClick: () => navigate('discover') }}
+            description="在顶部搜索框输入房间号 / 主播名 / 关键词开始观看"
           />
         ) : (
           <div className="grid grid-cols-4 gap-4">
             {recent.map((h) => (
-              <LiveCard key={`${h.platform}-${h.id}-${h.openedAt}`} room={h} onClick={watch} />
+              <LiveCard key={`${h.platform}-${h.id}-${h.openedAt}`} room={h} onClick={handleCardClick} />
             ))}
           </div>
         )}
