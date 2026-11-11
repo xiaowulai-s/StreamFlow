@@ -127,18 +127,3 @@ async fn douyu_stream_urls_smoke() {
     );
 }
 
-#[test]
-fn douyu_signature_matches_known_vector() {
-    // 与混淆 JS 实测输出比对（2026-11-10 抓取）
-    let query = streamflow_lib::reverse::douyu_signature::sign(
-        "9999",
-        "deadbeefdeadbeefdeadbeefdeadbeef",
-        "1794296000",
-        "220120261110",
-    );
-    assert!(
-        query.ends_with("38b78deabc2c48c2634153062be273f4"),
-        "签名不匹配: {}",
-        query
-    );
-}

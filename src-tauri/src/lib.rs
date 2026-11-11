@@ -22,6 +22,9 @@ pub struct RoomInfo {
     pub username: String,
     pub view_count: u64,
     pub status: LiveStatus,
+    /// 房间封面（接口提供时才有）
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub cover: Option<String>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]

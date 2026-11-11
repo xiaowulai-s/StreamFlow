@@ -9,6 +9,8 @@ export interface Room {
   username: string;
   viewCount: number;
   status: 'live' | 'sleeping' | 'error';
+  /** 房间封面（接口提供时才有） */
+  cover?: string;
 }
 
 export interface StreamResult {

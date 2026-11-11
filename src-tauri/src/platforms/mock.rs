@@ -44,6 +44,7 @@ impl crate::adapter::PlatformAdapter for MockAdapter {
                 username: "Mock Master".to_string(),
                 view_count: 1000,
                 status: LiveStatus::Live,
+                cover: None,
             },
             RoomInfo {
                 id: "mock_2".to_string(),
@@ -52,6 +53,7 @@ impl crate::adapter::PlatformAdapter for MockAdapter {
                 username: "Another Mock".to_string(),
                 view_count: 500,
                 status: LiveStatus::Sleeping,
+                cover: None,
             },
         ])
     }
@@ -66,6 +68,7 @@ impl crate::adapter::PlatformAdapter for MockAdapter {
             username: "Mock Master".to_string(),
             view_count: 1234,
             status: LiveStatus::Live,
+                cover: None,
         })
     }
     

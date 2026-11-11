@@ -24,3 +24,8 @@ export function getRoomDetail(platform: string, roomId: string): Promise<Room> {
 export function getLiveStatus(platform: string, roomId: string): Promise<Room['status']> {
   return rawInvoke('get_live_status', { platform, roomId });
 }
+
+/** 聚合所有已接入平台的热门/推荐直播间 */
+export function getHotRooms(): Promise<Room[]> {
+  return rawInvoke('get_hot_rooms', {});
+}

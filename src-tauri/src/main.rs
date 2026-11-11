@@ -84,6 +84,7 @@ fn run() -> Result<(), Box<dyn std::error::Error>> {
             commands::get_room_detail,
             commands::get_stream_urls,
             commands::get_live_status,
+            commands::get_hot_rooms,
         ])
         .setup(|app| {
             // 窗口配置 create=false，改为手动创建并带重试：

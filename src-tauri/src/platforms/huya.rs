@@ -173,6 +173,7 @@ impl crate::adapter::PlatformAdapter for HuyaAdapter {
             } else {
                 LiveStatus::Sleeping
             },
+            cover: find_json_str(&text, "screenshot", live_idx).filter(|s| s.starts_with("http")),
         })
     }
 

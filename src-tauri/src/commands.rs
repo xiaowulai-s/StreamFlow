@@ -62,3 +62,16 @@ pub async fn get_live_status(
         .await
         .map_err(|e| e.to_string())
 }
+
+/// 聚合所有已接入平台的热门/推荐直播间（仅已实现该能力的平台返回数据）
+#[tauri::command]
+pub async fn get_hot_rooms(state: State<'_, AppState>) -> Result<Vec<RoomInfo>, String> {
+    let mut all: Vec<RoomInfo> = Vec::new();
+    for adapter in state.adapters.all() {
+        match adapter.hot_rooms().await {
+            Ok(rooms) => all.extend(rooms),
+            Err(e) => log::warn!("{} 热门列表获取失败: {}", adapter.name(), e),
+        }
+    }
+    Ok(all)
+}

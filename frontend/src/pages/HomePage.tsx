@@ -1,6 +1,8 @@
-// 首页：关注开播条 + 平台快捷入口 + 最近观看（产品方案 5.2）
+// 首页：关注开播条 + 热门直播 + 平台快捷入口 + 最近观看（产品方案 5.2）
+import { useEffect, useState } from 'react';
 import { useApp } from '../context';
-import { PLATFORM_LABELS, PLATFORM_STREAM_SUPPORT, type Platform } from '../lib/types';
+import { getHotRooms } from '../lib/tauri';
+import { PLATFORM_LABELS, PLATFORM_STREAM_SUPPORT, type Platform, type Room } from '../lib/types';
 import { LiveCard } from '../components/LiveCard';
 import { EmptyState } from '../components/EmptyState';
 import { StatusBadge } from '../components/StatusBadge';
@@ -11,6 +13,22 @@ export function HomePage() {
   const { favorites, history, navigate, watch, setGlobalKeyword } = useApp();
   const liveFavorites = favorites.filter((f) => f.status === 'live');
   const recent = history.slice(0, 4);
+
+  // 热门直播（聚合各平台推荐列表，B 站已接入）
+  const [hot, setHot] = useState<Room[] | null>(null);
+  useEffect(() => {
+    let cancelled = false;
+    getHotRooms()
+      .then((rooms) => {
+        if (!cancelled) setHot(rooms.slice(0, 12));
+      })
+      .catch(() => {
+        if (!cancelled) setHot([]);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, []);
 
   return (
     <div className="space-y-6">
@@ -43,6 +61,43 @@ export function HomePage() {
                 <span className="shrink-0 text-xs text-slate">{f.username}</span>
                 <span className="shrink-0 text-xs text-stream">{PLATFORM_LABELS[f.platform]} →</span>
               </button>
+            ))}
+          </div>
+        )}
+      </section>
+
+      {/* 热门直播（聚合平台推荐列表） */}
+      <section>
+        <div className="mb-3 flex items-center justify-between">
+          <h2 className="text-base font-bold text-ink">热门直播</h2>
+          <button
+            onClick={() => {
+              setGlobalKeyword('');
+              navigate('discover');
+            }}
+            className="text-xs text-stream hover:underline"
+          >
+            去发现 →
+          </button>
+        </div>
+        {hot === null ? (
+          <div className="grid grid-cols-4 gap-4">
+            {Array.from({ length: 4 }).map((_, i) => (
+              <div key={i} className="animate-pulse rounded-card border border-line bg-surface p-3">
+                <div className="aspect-video rounded-lg bg-canvas" />
+                <div className="mt-2.5 h-4 w-3/4 rounded bg-canvas" />
+                <div className="mt-2 h-3 w-1/2 rounded bg-canvas" />
+              </div>
+            ))}
+          </div>
+        ) : hot.length === 0 ? (
+          <div className="rounded-card border border-line bg-surface px-5 py-4 text-sm text-slate">
+            热门列表暂时不可用，稍后刷新重试
+          </div>
+        ) : (
+          <div className="grid grid-cols-4 gap-4">
+            {hot.map((r) => (
+              <LiveCard key={`hot-${r.platform}-${r.id}`} room={r} onClick={watch} />
             ))}
           </div>
         )}
@@ -83,7 +138,7 @@ export function HomePage() {
         {recent.length === 0 ? (
           <EmptyState
             title="暂无观看记录"
-            description="去「直播发现」用房间号直达直播间，或等热门直播接入后直接挑选"
+            description="去「直播发现」用房间号直达直播间，或从热门直播里挑选"
             action={{ label: '去发现', onClick: () => navigate('discover') }}
           />
         ) : (

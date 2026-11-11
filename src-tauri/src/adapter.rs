@@ -26,6 +26,11 @@ pub trait PlatformAdapter: Send + Sync {
     async fn stream_urls(&self, room_id: &str) -> AdapterResult;
     async fn live_status(&self, room_id: &str) -> anyhow::Result<LiveStatus>;
     async fn danmaku_url(&self, room_id: &str) -> Option<String>;
+
+    /// 热门/推荐直播间列表（平台支持时实现，默认不支持返回空）
+    async fn hot_rooms(&self) -> anyhow::Result<Vec<RoomInfo>> {
+        Ok(vec![])
+    }
 }
 
 pub struct AdapterRegistry {

@@ -1,10 +1,9 @@
 //! Douyu 斗鱼适配器
 //! 房间信息使用 betard 接口（实测可用）；
-//! 流地址通过 swf_api 取签名密钥，按 reverse::douyu_signature 计算 sign，
-//! POST lapi/live/getH5Play 获取 flv 直播流（实测 error=0）；
-//! 支持别名房间号（如 pigff）：抓房间页解析 window.room_id 得到数字 ID。
+//! 流地址通过 swf_api 取当日混淆签名 JS，经系统 JS 引擎（node/cscript）执行得到签名，
+//! POST lapi/live/getH5Play 获取 flv 直播流（实测 error=0）。
+//! 注意：签名混淆参数每日轮换，纯 Rust 硬编码公式次日即失效（已实测），故必须动态执行 JS。
 
-use crate::reverse::douyu_signature;
 use crate::{AdapterError, AdapterResult, LiveStatus, RoomInfo, StreamResult};
 use async_trait::async_trait;
 use reqwest::Client;
@@ -103,42 +102,93 @@ impl DouyuAdapter {
             } else {
                 LiveStatus::Sleeping
             },
+            cover: find_field_value(json, "room_pic").filter(|s| s.starts_with("http")),
         }
     }
 
-    /// 从 swf_api 返回的混淆 JS 中提取签名密钥（vdwdae325w_64we）
-    async fn fetch_sign_key(&self, room_id: &str) -> anyhow::Result<String> {
-        let url = format!("https://www.douyu.com/swf_api/homeH5Enc?rids={}", room_id);
+    /// 通过系统 JS 引擎（node 优先，cscript 兜底）执行当日下发的混淆签名函数。
+    /// 混淆参数（XTEA 常量/密钥/后置混淆序列）每日轮换，硬编码公式次日即失效，
+    /// 因此必须实时执行服务端返回的 JS。
+    async fn sign_via_js(&self, room_id: &str) -> anyhow::Result<String> {
+        let swf_url = format!("https://www.douyu.com/swf_api/homeH5Enc?rids={}", room_id);
         let resp = self
             .client
-            .get(&url)
+            .get(&swf_url)
             .header("User-Agent", USER_AGENT)
             .send()
             .await?
             .error_for_status()?;
         let json = resp.json::<serde_json::Value>().await?;
-
-        let js = json
+        let sign_func = json
             .get("data")
             .and_then(|d| d.get(&format!("room{}", room_id)))
             .and_then(|v| v.as_str())
-            .ok_or_else(|| anyhow::anyhow!("swf_api 响应缺少签名脚本"))?;
+            .filter(|s| s.contains("ub98484234"))
+            .ok_or_else(|| anyhow::anyhow!("swf_api 响应缺少签名脚本"))?
+            .to_string();
 
-        extract_js_string(js, "vdwdae325w_64we")
-            .ok_or_else(|| anyhow::anyhow!("签名脚本中未找到密钥 vdwdae325w_64we"))
-    }
+        // crypto-js md5 依赖（缓存到临时目录，避免每次下载）
+        let crypto_path = std::env::temp_dir().join("streamflow_cryptojs_md5.js");
+        if !crypto_path.exists() {
+            let body = self
+                .client
+                .get("https://cdn.jsdelivr.net/npm/cryptojslib@3.1.2/rollups/md5.js")
+                .header("User-Agent", USER_AGENT)
+                .send()
+                .await?
+                .error_for_status()?
+                .text()
+                .await?;
+            std::fs::write(&crypto_path, &body)?;
+        }
+        let crypto_js = std::fs::read_to_string(&crypto_path)?;
 
-    /// 获取 flv 直播流地址（签名与 swf_api 均要求数字房间号）
-    async fn get_flv_stream_url(&self, room_id: &str) -> anyhow::Result<String> {
-        let numeric_id = self.resolve_room_id(room_id).await?;
-        let key = self.fetch_sign_key(&numeric_id).await?;
         let uuid = uuid::Uuid::new_v4().simple().to_string();
         let ts = std::time::SystemTime::now()
             .duration_since(std::time::UNIX_EPOCH)
             .unwrap()
             .as_secs()
             .to_string();
-        let sign_query = douyu_signature::sign(&numeric_id, &uuid, &ts, &key);
+
+        // 兼容 node（console.log）与 cscript（WScript.Echo）
+        let script = format!(
+            "{}\n{}\nvar __r = ub98484234(\"{}\",\"{}\",\"{}\");\nif (typeof WScript !== \"undefined\") {{ WScript.Echo(__r); }} else {{ console.log(__r); }}",
+            crypto_js, sign_func, room_id, uuid, ts
+        );
+        let script_path = std::env::temp_dir().join("streamflow_douyu_sign.js");
+        std::fs::write(&script_path, &script)?;
+
+        // node 优先，cscript 兜底
+        let output = {
+            let node = std::process::Command::new("node")
+                .arg(&script_path)
+                .output();
+            match node {
+                Ok(out) if out.status.success() && !out.stdout.is_empty() => out,
+                _ => std::process::Command::new("cscript")
+                    .arg("//nologo")
+                    .arg(&script_path)
+                    .output()?,
+            }
+        };
+        if !output.status.success() {
+            anyhow::bail!("JS 签名引擎执行失败（需要 node 或系统 cscript）");
+        }
+        let stdout = String::from_utf8_lossy(&output.stdout);
+        let line = stdout
+            .lines()
+            .rev()
+            .find(|l| l.contains("sign="))
+            .ok_or_else(|| anyhow::anyhow!("签名输出异常: {}", stdout.chars().take(80).collect::<String>()))?
+            .trim()
+            .to_string();
+        Ok(line)
+    }
+
+    /// 获取 flv 直播流地址（签名与 swf_api 均要求数字房间号）
+    async fn get_flv_stream_url(&self, room_id: &str) -> anyhow::Result<String> {
+        let numeric_id = self.resolve_room_id(room_id).await?;
+        let sign_query = self.sign_via_js(&numeric_id).await?;
 
         // sign_query 形如 "v=...&did=...&tt=...&sign=..."，拆成表单键值
         let mut form: Vec<(&str, &str)> = vec![("rate", "0")];
@@ -179,16 +229,6 @@ impl DouyuAdapter {
 
         Ok(format!("{}/{}", rtmp_url.trim_end_matches('/'), rtmp_live))
     }
-}
-
-/// 从 JS 源码中提取 `var NAME = "VALUE";` 的字符串值
-fn extract_js_string(js: &str, name: &str) -> Option<String> {
-    let idx = js.find(name)?;
-    let rest = &js[idx + name.len()..];
-    let q1 = rest.find('"')?;
-    let rest2 = &rest[q1 + 1..];
-    let q2 = rest2.find('"')?;
-    Some(rest2[..q2].to_string())
 }
 
 /// 深度优先查找字段值（字符串/数字），先查当前层级再递归子节点。
@@ -267,6 +307,16 @@ mod tests {
         eprintln!("showStatus: {:?}", json.get("showStatus"));
         let info = adapter.parse_room_info(&numeric, &json);
         eprintln!("title: {:?}", info.title);
+    }
+
+    #[tokio::test]
+    #[ignore = "依赖真实网络：调试完整流获取链路"]
+    async fn debug_stream_9999() {
+        let adapter = DouyuAdapter::new();
+        match adapter.get_flv_stream_url("9999").await {
+            Ok(url) => eprintln!("FLV OK: {}", &url[..url.len().min(140)]),
+            Err(e) => eprintln!("FLV FAIL: {}", e),
+        }
     }
 
     #[tokio::test]

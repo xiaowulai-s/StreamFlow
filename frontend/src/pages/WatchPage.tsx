@@ -147,7 +147,12 @@ export function WatchPage() {
               <span className="text-danger">
                 <AlertIcon size={34} />
               </span>
-              <p className="text-sm text-white">{loadError}</p>
+              <p className="text-sm font-medium text-white">
+                {watching.status !== 'live'
+                  ? '该主播当前未开播（休眠中），开播后即可观看'
+                  : loadError}
+              </p>
+              {watching.status === 'live' && <p className="text-xs text-white/70">{loadError}</p>}
               <div className="flex gap-2">
                 <button
                   onClick={() => setReloadKey((k) => k + 1)}
