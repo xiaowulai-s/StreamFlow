@@ -188,6 +188,72 @@ pub async fn open_external(url: String) -> Result<(), String> {
     Ok(())
 }
 
+/// 应用版本（tauri.conf.json version）
+#[tauri::command]
+pub fn get_app_version(app: tauri::AppHandle) -> String {
+    app.package_info().version.to_string()
+}
+
+/// 待安装的更新对象（check 与 install 两步之间暂存）
+#[derive(Default)]
+pub struct PendingUpdate(pub std::sync::Mutex<Option<tauri_plugin_updater::Update>>);
+
+#[derive(serde::Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct UpdateMeta {
+    pub version: String,
+    pub current_version: String,
+    pub notes: Option<String>,
+}
+
+/// 检查应用更新（GitHub Releases；代理用 STREAMFLOW_UPDATER_PROXY）
+#[tauri::command]
+pub async fn check_app_update(
+    app: tauri::AppHandle,
+    pending: tauri::State<'_, PendingUpdate>,
+) -> Result<Option<UpdateMeta>, String> {
+    use tauri_plugin_updater::UpdaterExt;
+    let mut builder = app.updater_builder();
+    if let Ok(proxy) = std::env::var("STREAMFLOW_UPDATER_PROXY") {
+        if !proxy.is_empty() {
+            let url: tauri::Url = proxy
+                .parse()
+                .map_err(|e| format!("代理地址无效（STREAMFLOW_UPDATER_PROXY）: {e}"))?;
+            builder = builder.proxy(url);
+        }
+    }
+    let updater = builder.build().map_err(|e| e.to_string())?;
+    let update = updater.check().await.map_err(|e| e.to_string())?;
+    Ok(update.map(|u| {
+        let meta = UpdateMeta {
+            version: u.version.clone(),
+            current_version: u.current_version.clone(),
+            notes: u.body.clone(),
+        };
+        *pending.0.lock().unwrap() = Some(u);
+        meta
+    }))
+}
+
+/// 下载并安装已检查到的更新（安装后应用自动重启）
+#[tauri::command]
+pub async fn install_app_update(
+    pending: tauri::State<'_, PendingUpdate>,
+) -> Result<(), String> {
+    let update = pending.0.lock().unwrap().take();
+    match update {
+        Some(u) => {
+            u.download_and_install(
+                |_chunk, _total| {},
+                || log::info!("更新安装完成，应用即将重启"),
+            )
+            .await
+            .map_err(|e| format!("安装失败: {e}"))
+        }
+        None => Err("请先检查更新".to_string()),
+    }
+}
+
 /// 本地时间戳字符串（YYYYMMDD-HHMMSS），导出文件命名用
 fn chrono_now_string() -> String {    let now = std::time::SystemTime::now()
         .duration_since(std::time::UNIX_EPOCH)

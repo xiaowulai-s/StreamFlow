@@ -218,67 +218,31 @@ export function clearWebviewCache(): Promise<void> {
 }
 
 // ---------------------------------------------------------------------------
-// 应用内自更新（tauri-plugin-updater）
+// 应用内自更新（tauri-plugin-updater，走自定义命令支持代理配置）
 // ---------------------------------------------------------------------------
 
 export interface UpdateInfo {
   version: string;
+  currentVersion: string;
   notes: string | null;
-  /** 当前版本与最新版本不同时为 true */
-  available: boolean;
 }
-
-type UpdaterGlobal = {
-  __TAURI__?: {
-    updater?: {
-      check?: () => Promise<
-        | null
-        | {
-            version: string;
-            currentVersion: string;
-            body?: string | null;
-            downloadAndInstall?: (cb?: (e: { event: string; data?: unknown }) => void) => Promise<void>;
-          }
-      >;
-    };
-    app?: { getVersion?: () => Promise<string> };
-  };
-};
 
 /** 读取应用版本（tauri.conf.json version 字段） */
 export async function getAppVersion(): Promise<string | null> {
-  const t = (window as unknown as UpdaterGlobal).__TAURI__;
   try {
-    return (await t?.app?.getVersion?.()) ?? null;
+    return await rawInvoke('get_app_version');
   } catch {
     return null;
   }
 }
 
-/** 检查更新：返回最新版本信息；无可更新时返回 null */
+/** 检查更新：有新版本时返回信息；已最新返回 null */
 export async function checkForUpdate(): Promise<UpdateInfo | null> {
-  const t = (window as unknown as UpdaterGlobal).__TAURI__;
-  const update = await t?.updater?.check?.();
-  if (!update) return null;
-  return {
-    version: update.version,
-    notes: update.body ?? null,
-    available: update.version !== update.currentVersion,
-  };
+  return rawInvoke('check_app_update');
 }
 
 /** 下载并安装更新（安装完成后应用会自动重启） */
-export async function downloadAndInstallUpdate(
-  onProgress?: (downloaded: number, total: number | null) => void,
-): Promise<void> {
-  const t = (window as unknown as UpdaterGlobal).__TAURI__;
-  const update = await t?.updater?.check?.();
-  if (!update?.downloadAndInstall) throw new Error('没有可安装的更新');
-  await update.downloadAndInstall((e) => {
-    const data = e.data as { chunkLength?: number; contentLength?: number } | undefined;
-    if (e.event === 'Progress' && onProgress && data?.chunkLength) {
-      onProgress(data.chunkLength, data?.contentLength ?? null);
-    }
-  });
+export function downloadAndInstallUpdate(): Promise<void> {
+  return rawInvoke('install_app_update');
 }
 

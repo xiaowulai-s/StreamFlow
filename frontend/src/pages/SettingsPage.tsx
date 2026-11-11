@@ -163,7 +163,7 @@ export function SettingsPage() {
     setUpdateState({ kind: 'checking' });
     try {
       const info = await checkForUpdate();
-      if (!info || !info.available) {
+      if (!info || info.version === info.currentVersion) {
         setUpdateState({ kind: 'latest' });
         return;
       }

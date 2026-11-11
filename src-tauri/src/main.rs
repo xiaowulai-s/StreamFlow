@@ -76,8 +76,10 @@ fn run() -> Result<(), Box<dyn std::error::Error>> {
         adapters: build_registry(),
     };
 
+    // 应用内自更新：代理可通过 STREAMFLOW_UPDATER_PROXY 显式指定（见 commands.rs）
     tauri::Builder::default()
         .plugin(tauri_plugin_updater::Builder::new().build())
+        .manage(commands::PendingUpdate::default())
         .manage(state)
         .invoke_handler(tauri::generate_handler![
             greet,
@@ -92,6 +94,9 @@ fn run() -> Result<(), Box<dyn std::error::Error>> {
             commands::open_external,
             commands::check_platform_connectivity,
             commands::clear_webview_cache,
+            commands::check_app_update,
+            commands::install_app_update,
+            commands::get_app_version,
             auth::open_login_window,
             auth::complete_login,
             auth::get_auth_status,
