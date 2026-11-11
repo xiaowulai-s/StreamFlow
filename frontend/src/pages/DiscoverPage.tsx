@@ -80,7 +80,7 @@ export function DiscoverPage() {
           </button>
         </div>
         <p className="mt-2 text-[11px] text-slate">
-          同时搜索虎牙 / 斗鱼 / B 站：虎牙、斗鱼支持主播别名与房间号直达；B 站仅数字房间号。平台官方搜索接口均受限，暂不支持关键词检索直播间内容。
+          同时搜索虎牙 / 斗鱼 / B 站：虎牙、斗鱼支持房间号与主播别名直达（中文名搜索平台接口受限暂不支持）；B 站支持关键词、主播名与房间号。
         </p>
       </div>
 
@@ -88,14 +88,14 @@ export function DiscoverPage() {
       {error && <EmptyState title="无法解析该房间" description={error} />}
       {!error && !results && !loading && (
         <EmptyState
-          title="输入房间号或主播别名开始"
-          description="一次搜索覆盖三个平台：虎牙（如 lpl）、斗鱼（如 pigff）、B 站（数字房间号如 6）"
+          title="输入关键词、房间号或主播别名开始"
+          description="B 站支持关键词/主播名（如 悲喜）；虎牙、斗鱼请输入房间号或别名（如 lpl、pigff）"
         />
       )}
       {!error && !loading && results && results.length === 0 && (
         <EmptyState
-          title="未找到该直播间"
-          description="请确认房间号/别名是否正确；房间可能已注销或未开放"
+          title="未找到相关直播间"
+          description="虎牙/斗鱼暂不支持中文名搜索，请改用其房间号或主播别名；B 站关键词请确认拼写"
         />
       )}
       {!error && loading && (

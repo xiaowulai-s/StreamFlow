@@ -44,17 +44,17 @@ async fn douyu_alias_resolution_smoke() {
 
 #[tokio::test]
 #[ignore = "依赖真实网络"]
-async fn bilibili_keyword_rejected() {
-    // B 站仅支持数字房间号：非数字关键词应返回明确错误
+async fn bilibili_keyword_search_smoke() {
+    // 关键词搜索（主页取 cookie → search/type）：搜"悲喜"应返回主播条目
     let adapter = BilibiliAdapter::new();
-    let err = adapter
-        .search("lpl")
+    let rooms = adapter
+        .search("悲喜")
         .await
-        .expect_err("B 站非数字关键词应返回错误");
+        .expect("B 站关键词搜索失败");
+    assert!(!rooms.is_empty(), "关键词 悲喜 应命中至少一个主播");
     assert!(
-        err.to_string().contains("数字房间号"),
-        "错误信息应说明仅支持数字房间号: {}",
-        err
+        rooms.iter().any(|r| r.username.contains("悲喜")),
+        "结果应包含包含关键词的主播名"
     );
 }
 

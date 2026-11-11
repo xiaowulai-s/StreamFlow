@@ -130,12 +130,141 @@ impl BilibiliAdapter {
 
         Ok(Self::pick_stream_url(&json))
     }
+    /// B 站关键词搜索：先访问主页获取 cookie（buvid3），再调用搜索接口。
+    /// 结果包含 live_room（直播中）与 live_user（主播，含未开播），清理高亮标签后映射。
+    async fn web_search(&self, keyword: &str) -> anyhow::Result<Vec<RoomInfo>> {
+        // 1. 主页取 cookie
+        let home = self
+            .client
+            .get("https://www.bilibili.com")
+            .header("User-Agent", USER_AGENT)
+            .send()
+            .await?
+            .error_for_status()?;
+        let cookies: String = home
+            .headers()
+            .get_all("set-cookie")
+            .iter()
+            .filter_map(|v| v.to_str().ok())
+            .filter_map(|sc| sc.split(';').next().map(|s| s.to_string()))
+            .collect::<Vec<_>>()
+            .join("; ");
+        if cookies.is_empty() {
+            anyhow::bail!("未获取到 B 站访问凭证，搜索暂不可用");
+        }
+
+        // 2. 搜索
+        let url = format!(
+            "https://api.bilibili.com/x/web-interface/search/type?search_type=live&keyword={}&page=1",
+            urlencoding::encode(keyword)
+        );
+        let resp = self
+            .client
+            .get(&url)
+            .header("User-Agent", USER_AGENT)
+            .header("Referer", "https://search.bilibili.com/")
+            .header("Cookie", &cookies)
+            .send()
+            .await?
+            .error_for_status()?;
+        let json = resp.json::<serde_json::Value>().await?;
+
+        let code = json.get("code").and_then(|v| v.as_i64()).unwrap_or(-1);
+        if code != 0 {
+            let msg = json.get("message").and_then(|v| v.as_str()).unwrap_or("unknown");
+            anyhow::bail!("搜索返回错误 {}: {}", code, msg);
+        }
+
+        let mut rooms: Vec<RoomInfo> = Vec::new();
+
+        // live_room：直播中的房间（title 带 <em> 高亮，含 online 观看数）
+        // 注意：result 是按类型分组的对象，不是数组
+        if let Some(items) = json.pointer("/data/result/live_room").and_then(|v| v.as_array()) {
+            for item in items {
+                let id = match item.get("roomid").and_then(|v| v.as_u64()) {
+                    Some(r) => r.to_string(),
+                    None => continue,
+                };
+                let title = clean_highlight(item.get("title").and_then(|v| v.as_str()).unwrap_or(""));
+                if title.is_empty() {
+                    continue;
+                }
+                let username = clean_highlight(item.get("uname").and_then(|v| v.as_str()).unwrap_or(""));
+                let view_count = item.get("online").and_then(|v| v.as_u64()).unwrap_or(0);
+                let cover = item
+                    .get("user_cover")
+                    .or_else(|| item.get("cover"))
+                    .and_then(|v| v.as_str())
+                    .filter(|s| s.starts_with("http"))
+                    .map(|s| if s.starts_with("//") { format!("https:{}", s) } else { s.to_string() });
+
+                rooms.push(RoomInfo {
+                    id,
+                    platform: "bilibili".to_string(),
+                    title,
+                    username,
+                    view_count: view_count,
+                    status: LiveStatus::Live,
+                    cover,
+                });
+            }
+        }
+
+        // live_user：主播条目（含未开播，live_status: 0 未开播 1 直播 2 轮播）
+        if let Some(items) = json.pointer("/data/result/live_user").and_then(|v| v.as_array()) {
+            for item in items {
+                let id = match item.get("roomid").and_then(|v| v.as_u64()) {
+                    Some(r) => r.to_string(),
+                    None => continue,
+                };
+                let username = clean_highlight(item.get("uname").and_then(|v| v.as_str()).unwrap_or(""));
+                if username.is_empty() {
+                    continue;
+                }
+                let live_status = item
+                    .get("live_status")
+                    .and_then(|v| v.as_i64())
+                    .unwrap_or(0);
+                let cate = item.get("cate_name").and_then(|v| v.as_str()).unwrap_or("");
+                let title = if cate.is_empty() {
+                    format!("{} 的直播间", username)
+                } else {
+                    format!("{}（{}）", username, cate)
+                };
+
+                rooms.push(RoomInfo {
+                    id,
+                    platform: "bilibili".to_string(),
+                    title,
+                    username,
+                    view_count: 0,
+                    status: if live_status == 1 {
+                        LiveStatus::Live
+                    } else {
+                        LiveStatus::Sleeping
+                    },
+                    cover: None,
+                });
+            }
+        }
+
+        Ok(rooms)
+    }
+
 }
 
 impl Default for BilibiliAdapter {
     fn default() -> Self {
         Self::new()
     }
+}
+
+/// 清理搜索结果中的关键词高亮标签
+fn clean_highlight(s: &str) -> String {
+    s.replace("<em class=\"keyword\">", "")
+        .replace("</em>", "")
+        .trim()
+        .to_string()
 }
 
 /// 解析热门列表条目为统一房间卡片（正在直播的房间）
@@ -178,13 +307,17 @@ impl crate::adapter::PlatformAdapter for BilibiliAdapter {
     }
 
     async fn search(&self, keyword: &str) -> anyhow::Result<Vec<RoomInfo>> {
-        // B 站无公开搜索接口（x/web-interface/search 返回 412 风控，需登录 cookie）。
-        // 仅支持数字房间号（短号/长号均可，如 6 / 7734200）。
-        if keyword.is_empty() || !keyword.chars().all(|c| c.is_ascii_digit()) {
-            anyhow::bail!("B 站仅支持数字房间号直达（关键词搜索受平台风控限制）");
+        if keyword.is_empty() {
+            anyhow::bail!("请输入搜索内容");
         }
-        let info = self.room_detail(keyword).await?;
-        Ok(vec![info])
+        // 数字：房间号直达（短号/长号均可，如 6 / 7734200）
+        if keyword.chars().all(|c| c.is_ascii_digit()) {
+            let info = self.room_detail(keyword).await?;
+            return Ok(vec![info]);
+        }
+        // 非数字：B 站关键词搜索（主播名/标题匹配）
+        // 需先访问主页获取 buvid3 等 cookie（与浏览器行为一致的合规方式）
+        self.web_search(keyword).await
     }
 
     async fn room_detail(&self, room_id: &str) -> anyhow::Result<RoomInfo> {
