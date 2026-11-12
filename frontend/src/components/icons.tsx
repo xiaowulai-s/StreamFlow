@@ -34,25 +34,16 @@ export function LogoMark({ size = 36 }: { size?: number }) {
   return (
     <svg width={size} height={size} viewBox="0 0 24 24" fill="none" aria-hidden="true">
       <defs>
-        <linearGradient id="sf-brand" x1="2" y1="3" x2="22" y2="21" gradientUnits="userSpaceOnUse">
-          <stop offset="0" stopColor="#25BDEB" />
-          <stop offset="0.55" stopColor="#2878F5" />
-          <stop offset="1" stopColor="#806BFA" />
+        <linearGradient id="z-brand" x1="3" y1="4" x2="21" y2="20" gradientUnits="userSpaceOnUse">
+          <stop offset="0" stopColor="#ffffff" />
+          <stop offset="1" stopColor="#a1a1aa" />
         </linearGradient>
       </defs>
-      {/* 上弧带（S 上半） */}
-      <path
-        d="M18.6 7.2C18.6 4.9 15.6 3.4 11.6 3.4 7.2 3.4 4.2 5 4.2 7.3c0 2.3 3 3.8 7.8 3.8 4.8 0 7.8 1.5 7.8 3.9 0 2.3-3 3.8-7.8 3.8-4 0-7-1.5-7-3.8"
-        stroke="url(#sf-brand)"
-        strokeWidth="3.1"
-        strokeLinecap="round"
-        fill="none"
-      />
-      {/* 播放三角（白色镂空，与 Logo 一致） */}
-      <path
-        d="M10.1 8.6v6.8c0 .7.8 1.2 1.4.8l5.4-3.4c.6-.4.6-1.2 0-1.6l-5.4-3.4c-.6-.4-1.4.1-1.4.8z"
-        fill="#fff"
-      />
+      <rect x="1" y="1" width="22" height="22" rx="6" fill="#18181b" />
+      {/* Z 字：粗笔画三段，斜切端点 */}
+      <path d="M 6.3 5.4 L 17.6 5.4 L 16.2 8.0 L 6.3 8.0 Z" fill="url(#z-brand)" />
+      <path d="M 17.6 5.4 L 7.9 16.3 L 6.3 16.3 L 6.3 15.7 L 16.2 5.4 Z" fill="url(#z-brand)" />
+      <path d="M 6.3 15.7 L 17.7 15.7 L 17.7 18.4 L 7.6 18.4 Z" fill="url(#z-brand)" />
     </svg>
   );
 }

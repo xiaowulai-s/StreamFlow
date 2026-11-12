@@ -116,7 +116,7 @@ pub async fn export_auth_file(app: tauri::AppHandle) -> Result<String, String> {
 
     let dir = app.path().download_dir().map_err(|e| e.to_string())?;
     std::fs::create_dir_all(&dir).map_err(|e| e.to_string())?;
-    let file = dir.join(format!("StreamFlow-登录态-{}.json", chrono_now_string()));
+    let file = dir.join(format!("Z-登录态-{}.json", chrono_now_string()));
     let mut f = std::fs::File::create(&file).map_err(|e| e.to_string())?;
     f.write_all(serde_json::to_string_pretty(&export).unwrap().as_bytes())
         .map_err(|e| e.to_string())?;

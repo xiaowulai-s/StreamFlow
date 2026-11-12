@@ -32,8 +32,8 @@ export function SideNav() {
         <LogoMark size={34} />
         {!collapsed && (
           <div className="min-w-0">
-            <div className="truncate text-sm font-bold text-ink">StreamFlow</div>
-            <div className="truncate text-[10px] text-slate">流光相伴 · 精彩不止</div>
+            <div className="truncate text-sm font-bold text-ink">Z</div>
+            <div className="truncate text-[10px] text-slate"></div>
           </div>
         )}
       </div>

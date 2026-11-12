@@ -337,7 +337,7 @@ export function SettingsPage() {
       <div>
         <h2 className="text-base font-bold text-ink">平台接入</h2>
         <p className="mt-1 text-xs text-slate">
-          登录后 StreamFlow 将携带你本人的会话访问该平台的关注列表等登录态功能；
+          登录后 Z 将携带你本人的会话访问该平台的关注列表等登录态功能；
           会话仅保存在本机（应用数据目录），可随时退出登录清除。
         </p>
       </div>
@@ -502,7 +502,7 @@ export function SettingsPage() {
       <div className="rounded-card border border-line bg-surface px-5 py-4">
         <h3 className="text-sm font-semibold text-ink">关于登录与隐私</h3>
         <ul className="mt-2 list-disc space-y-1 pl-5 text-xs text-slate">
-          <li>登录在平台官方页面/官方扫码接口完成，StreamFlow 不接触你的账号密码。</li>
+          <li>登录在平台官方页面/官方扫码接口完成，Z 不接触你的账号密码。</li>
           <li>登录产生的会话 cookie 仅保存在本机应用数据目录，用于访问关注列表等功能。</li>
           <li>退出登录会立即清除本机会话；在平台官网改密码/退出登录也会使其失效。</li>
         </ul>
@@ -617,7 +617,7 @@ export function SettingsPage() {
       <div className="rounded-card border border-line bg-surface px-5 py-4">
         <h3 className="text-sm font-semibold text-ink">关于</h3>
         <ul className="mt-2 list-disc space-y-1 pl-5 text-xs text-slate">
-          <li>StreamFlow 桌面版 v{appVersion}（Tauri 2 + React）。</li>
+          <li>Z 桌面版 v{appVersion}（Tauri 2 + React）。</li>
           <li>收藏/历史/设置存于本机 SQLite（应用数据目录 streamflow.db）。</li>
           <li>弹幕均为只读接入，不发送、不注入任何平台。</li>
         </ul>

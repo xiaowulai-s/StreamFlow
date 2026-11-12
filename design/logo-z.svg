@@ -1,0 +1,33 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1024" height="1024" viewBox="0 0 1024 1024">
+  <defs>
+    <linearGradient id="bg" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" stop-color="#0a0a0c"/>
+      <stop offset="55%" stop-color="#1c1c21"/>
+      <stop offset="100%" stop-color="#33333a"/>
+    </linearGradient>
+    <linearGradient id="zg" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" stop-color="#ffffff"/>
+      <stop offset="50%" stop-color="#e4e4e7"/>
+      <stop offset="100%" stop-color="#a1a1aa"/>
+    </linearGradient>
+    <linearGradient id="sheen" x1="0%" y1="0%" x2="0%" y2="100%">
+      <stop offset="0%" stop-color="#ffffff" stop-opacity="0.12"/>
+      <stop offset="55%" stop-color="#ffffff" stop-opacity="0"/>
+    </linearGradient>
+  </defs>
+
+  <!-- 圆角背景：深灰黑 -->
+  <rect width="1024" height="1024" rx="232" fill="url(#bg)"/>
+  <circle cx="800" cy="240" r="300" fill="#3f3f46" opacity="0.35"/>
+  <circle cx="230" cy="830" r="250" fill="#27272a" opacity="0.6"/>
+  <rect width="1024" height="1024" rx="232" fill="url(#sheen)"/>
+
+  <!-- Z：粗笔画三段（白→浅灰渐变） -->
+  <g fill="url(#zg)">
+    <path d="M 268 232 L 760 232 L 700 344 L 268 344 Z"/>
+    <path d="M 760 232 L 340 704 L 268 704 L 268 680 L 700 232 Z"/>
+    <path d="M 268 680 L 764 680 L 764 792 L 328 792 Z"/>
+  </g>
+  <!-- 顶横下沿高光（笔画内，灰调） -->
+  <path d="M 268 322 L 700 322 L 674 344 L 268 344 Z" fill="#71717a" opacity="0.45"/>
+</svg>
