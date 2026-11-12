@@ -249,4 +249,6 @@ pub async fn live_search(keyword: &str) -> anyhow::Result<Vec<serde_json::Value>
         .and_then(|v| v.as_array())
         .cloned()
         .unwrap_or_default();
+    Ok(list)
+}
  
