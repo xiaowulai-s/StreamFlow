@@ -354,14 +354,7 @@ pub async fn run(app: &AppHandle, room_id: &str, tx: Sender<DanmakuMessage>) -> 
             frame = ws.next() => {
                 match frame {
                     Some(Ok(Message::Binary(data))) => {
-                        // 诊断：数据流与解析统计（定位"连接成功但无弹幕"）
                         let parsed = parse_frame(&data);
-                        log::info!(
-                            "[danmaku] douyin 帧 {}B ack={} chats={}",
-                            data.len(),
-                            parsed.ack.is_some(),
-                            parsed.chats.len()
-                        );
                         if let Some((log_id, internal_ext)) = parsed.ack {
                             ws.send(Message::Binary(ack_frame(log_id, &internal_ext).into()))
                                 .await

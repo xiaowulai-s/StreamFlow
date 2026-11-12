@@ -116,7 +116,7 @@ export function DanmakuPanel({ platform, roomId }: { platform: string; roomId: s
               : status === 'error'
                 ? error
                 : status === 'connected'
-                  ? '暂无弹幕，稍等…'
+                  ? '暂无弹幕（房间较冷清时可能长时间无消息，可换热门直播间对比）'
                   : '正在连接弹幕…'}
           </div>
         ) : (
