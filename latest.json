@@ -1,10 +1,11 @@
 {
-  "version": "0.0.1",
-  "pub_date": "2026-11-11T10:14:04.318Z",
+  "version": "0.0.2",
+  "pub_date": "2026-11-12T07:56:19.447Z",
   "platforms": {
     "windows-x86_64": {
-      "signature": "dW50cnVzdGVkIGNvbW1lbnQ6IHNpZ25hdHVyZSBmcm9tIHRhdXJpIHNlY3JldCBrZXkKUlVSc0FtaGFnK2ErdFhjUEFVeWxGZFllVFBDbmV5eGtvVzlwdExYNzRMVHVYS0tnZUhQd0ZaYWlNRCtTalV0REVwMy94enRDbGJrT1lPQVZRVWVkUHk2UjA3NEFDMEhYMGdvPQp0cnVzdGVkIGNvbW1lbnQ6IHRpbWVzdGFtcDoxNzk0MzkyMDQ0CWZpbGU6U3RyZWFtRmxvd18wLjAuMV94NjRfZW4tVVMubXNpCXZlcnNpb246MC4wLjEKMHczRFJTbFVKR1VjT0ZEQjVMUllzMlcwdGpRb1JQaWJYd0w1bXA5QWhnNU1ickVWUGY5T2ZkWVk1aGhYVFhDc3Q1Tnhuck9pbFRRZ2tvTEdjeXdvQ0E9PQo=",
-      "url": "https://github.com/xiaowulai-s/StreamFlow/releases/download/v0.0.1/StreamFlow_0.0.1_x64_en-US.msi"
+      "signature": "dW50cnVzdGVkIGNvbW1lbnQ6IHNpZ25hdHVyZSBmcm9tIHRhdXJpIHNlY3JldCBrZXkKUlVSc0FtaGFnK2ErdGE3TVhXdzdiV2M2TFR5aG5EamxabVl6OFpzSlZGNEdEc2pkWUR2cUN3aWlvTVZQRDhHYkdWMitvTEptamtNb001NW9oR1JzNTNTN1NCck9QNVlGWkFRPQp0cnVzdGVkIGNvbW1lbnQ6IHRpbWVzdGFtcDoxNzk0NDcwMTU2CWZpbGU6Wl8wLjAuMl94NjRfZW4tVVMubXNpCXZlcnNpb246MC4wLjIKSjZ0Si9lWk83WW5DL3BrKzhhM292L0huZnZjR1M0cTdyNkhyOVdWcmw2TEVqNWlhQUVCQzBnaVdINXY1QklxOEtuK1ZtODREL3ZXTDJsNjVuYUpIQUE9PQo=",
+      "url": "https://github.com/xiaowulai-s/StreamFlow/releases/download/v0.0.2/Z_0.0.2_x64_en-US.msi"
     }
-  }
+  },
+  "notes": "抖音搜索打通（页面环境架构）、应用更名 Z + 全新双主题图标、快手 TLS 风控修复（rustls）、历史保留期限、接口级失效监测"
 }
