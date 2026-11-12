@@ -254,6 +254,73 @@ pub async fn install_app_update(
     }
 }
 
+/// 平台健康检测结果
+#[derive(Debug, Clone, serde::Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct PlatformHealth {
+    /// 门户连通延迟（ms）；门户请求失败为 None
+    pub portal_ms: Option<u64>,
+    pub portal_error: Option<String>,
+    /// 核心数据接口（热门列表）是否返回有效结构
+    pub api_ok: bool,
+    pub api_detail: String,
+    pub room_count: usize,
+}
+
+/// 平台失效监测：门户连通性 + 核心数据接口验证。
+/// 门户 200 不代表接口可用——签名失效/字段变更时门户正常但数据接口失效，
+/// 因此真实调用热门列表接口并断言返回非空。
+#[tauri::command]
+pub async fn check_platform_health(
+    state: State<'_, AppState>,
+    platform: String,
+) -> Result<PlatformHealth, String> {
+    // 1. 门户连通
+    let portal_url = match platform.as_str() {
+        "huya" => "https://www.huya.com/",
+        "douyu" => "https://www.douyu.com/",
+        "bilibili" => "https://www.bilibili.com/",
+        "douyin" => "https://live.douyin.com/",
+        "kuaishou" => "https://live.kuaishou.com/",
+        _ => return Err(format!("未知平台: {}", platform)),
+    };
+    let client = reqwest::Client::builder()
+        .timeout(std::time::Duration::from_secs(6))
+        .build()
+        .map_err(|e| e.to_string())?;
+    let start = std::time::Instant::now();
+    let portal = client
+        .get(portal_url)
+        .header("User-Agent", "Mozilla/5.0 (Windows NT 10.0; Win64; x64)")
+        .send()
+        .await;
+    let (portal_ms, portal_error) = match portal {
+        Ok(r) => match r.error_for_status() {
+            Ok(_) => (Some(start.elapsed().as_millis() as u64), None),
+            Err(e) => (None, Some(format!("门户响应异常: {e}"))),
+        },
+        Err(e) => (None, Some(format!("连接失败: {}", &e.to_string()[..e.to_string().len().min(60)]))),
+    };
+
+    // 2. 核心接口验证（热门列表真实调用，8s 超时）
+    let adapter = get_adapter(&state, &platform)?;
+    let (api_ok, api_detail, room_count) = match tokio::time::timeout(
+        std::time::Duration::from_secs(8),
+        adapter.hot_rooms(),
+    )
+    .await
+    {
+        Err(_) => (false, "接口超时（8s）".to_string(), 0),
+        Ok(Ok(rooms)) if rooms.is_empty() => {
+            (false, "接口响应为空（疑似字段变更或下线）".to_string(), 0)
+        }
+        Ok(Ok(rooms)) => (true, format!("热门接口正常（{} 个直播间）", rooms.len()), rooms.len()),
+        Ok(Err(e)) => (false, format!("接口失败: {}", &e.to_string()[..e.to_string().len().min(70)]), 0),
+    };
+
+    Ok(PlatformHealth { portal_ms, portal_error, api_ok, api_detail, room_count })
+}
+
 /// 本地时间戳字符串（YYYYMMDD-HHMMSS），导出文件命名用
 fn chrono_now_string() -> String {    let now = std::time::SystemTime::now()
         .duration_since(std::time::UNIX_EPOCH)

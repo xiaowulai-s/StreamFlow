@@ -207,9 +207,18 @@ export function openExternal(url: string): Promise<void> {
   return rawInvoke('open_external', { url });
 }
 
-/** 平台连通性检测，返回延迟毫秒；失败时抛出错误信息 */
-export function checkPlatformConnectivity(platform: string): Promise<number> {
-  return rawInvoke('check_platform_connectivity', { platform });
+/** 平台健康检测结果 */
+export interface PlatformHealth {
+  portalMs: number | null;
+  portalError: string | null;
+  apiOk: boolean;
+  apiDetail: string;
+  roomCount: number;
+}
+
+/** 平台失效监测：门户连通 + 核心接口验证 */
+export function checkPlatformHealth(platform: string): Promise<PlatformHealth> {
+  return rawInvoke('check_platform_health', { platform });
 }
 
 /** 清理 WebView 网页缓存（会同时清除平台登录 cookie，需重新登录！） */

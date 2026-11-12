@@ -1,6 +1,7 @@
 // 关注与观看历史的本地存储（SQLite，首次启动迁移旧 localStorage）
-import { useCallback, useEffect, useState } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 import {
+  getSetting,
   loadFavorites,
   saveFavorites,
   loadHistory,
@@ -116,53 +117,91 @@ export function useFavorites() {
   return { favorites, isFavorite, toggleFavorite, mergeFavorites };
 }
 
-/** 观看历史：最新在前，默认保留 200 条 */
+/** 观看历史：最新在前，默认保留 200 条；另有按天保留期限（history_retention_days 设置，0=永久） */
+const HISTORY_MAX_ITEMS = 200;
+
+/** 按保留期限设置过滤历史（过期条目直接丢弃） */
+function pruneHistoryByRetention(items: HistoryItem[], days: number): HistoryItem[] {
+  if (days <= 0) return items;
+  const cutoff = Date.now() - days * 24 * 60 * 60 * 1000;
+  return items.filter((h) => (h.openedAt ?? 0) >= cutoff);
+}
+
 export function useHistory() {
   const [history, setHistory] = useState<HistoryItem[]>([]);
   const [ready, setReady] = useState(false);
+  const retentionRef = useRef(0);
+
+  const applyPrune = useCallback((rows: HistoryItem[]): HistoryItem[] => {
+    const pruned = pruneHistoryByRetention(rows, retentionRef.current).slice(0, HISTORY_MAX_ITEMS);
+    return pruned;
+  }, []);
+
+  // 保留期限设置：变化后立即重裁（并持久化裁剪结果）
+  const applyRetention = useCallback(
+    (days: number) => {
+      retentionRef.current = days;
+      setHistory((prev) => {
+        const pruned = pruneHistoryByRetention(prev, days).slice(0, HISTORY_MAX_ITEMS);
+        return pruned.length === prev.length ? prev : pruned;
+      });
+    },
+    [],
+  );
 
   useEffect(() => {
     let cancelled = false;
-    loadHistory()
-      .then((rows) => {
-        if (cancelled) return;
-        if (rows.length === 0) {
-          const legacy = loadLegacy<HistoryItem>(HIS_KEY);
-          if (legacy.length > 0) {
-            setHistory(legacy);
-            setReady(true);
-            void saveHistory(legacy)
-              .then(() => localStorage.removeItem(HIS_KEY))
-              .catch(() => undefined);
-            return;
-          }
-        }
-        setHistory(rows);
-        setReady(true);
+    // 先读保留期限，再加载历史（避免先显示后裁剪的闪烁）
+    getSetting('history_retention_days')
+      .then((v) => {
+        retentionRef.current = Number(v) > 0 ? Number(v) : 0;
       })
-      .catch(() => {
-        if (cancelled) return;
-        setHistory(loadLegacy<HistoryItem>(HIS_KEY));
-        setReady(true);
+      .catch(() => undefined)
+      .finally(() => {
+        loadHistory()
+          .then((rows) => {
+            if (cancelled) return;
+            if (rows.length === 0) {
+              const legacy = loadLegacy<HistoryItem>(HIS_KEY);
+              if (legacy.length > 0) {
+                setHistory(applyPrune(legacy));
+                setReady(true);
+                void saveHistory(applyPrune(legacy))
+                  .then(() => localStorage.removeItem(HIS_KEY))
+                  .catch(() => undefined);
+                return;
+              }
+            }
+            setHistory(applyPrune(rows));
+            setReady(true);
+          })
+          .catch(() => {
+            if (cancelled) return;
+            setHistory(loadLegacy<HistoryItem>(HIS_KEY));
+            setReady(true);
+          });
       });
     return () => {
       cancelled = true;
     };
-  }, []);
+  }, [applyPrune]);
 
   useEffect(() => {
     if (!ready) return;
     saveHistory(history).catch(() => saveLegacy(HIS_KEY, history));
   }, [history, ready]);
 
-  const addHistory = useCallback((room: Room) => {
-    setHistory((prev) => {
-      const rest = prev.filter((h) => !(h.platform === room.platform && h.id === room.id));
-      return [{ ...room, openedAt: Date.now() }, ...rest].slice(0, 200);
-    });
-  }, []);
+  const addHistory = useCallback(
+    (room: Room) => {
+      setHistory((prev) => {
+        const rest = prev.filter((h) => !(h.platform === room.platform && h.id === room.id));
+        return [{ ...room, openedAt: Date.now() }, ...rest].slice(0, HISTORY_MAX_ITEMS);
+      });
+    },
+    [],
+  );
 
   const clearHistory = useCallback(() => setHistory([]), []);
 
-  return { history, addHistory, clearHistory };
+  return { history, addHistory, clearHistory, applyRetention };
 }

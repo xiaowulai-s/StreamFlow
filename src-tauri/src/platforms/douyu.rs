@@ -462,8 +462,13 @@ mod tests {
     #[ignore = "依赖真实网络：调试完整流获取链路"]
     async fn debug_stream_9999() {
         let adapter = DouyuAdapter::new();
-        match adapter.get_flv_stream_url("9999").await {
-            Ok(url) => eprintln!("FLV OK: {}", &url[..url.len().min(140)]),
+        match adapter.get_flv_quality_list("9999").await {
+            Ok((default_url, qualities)) => {
+                eprintln!("FLV OK（{} 档）: {}", qualities.len(), &default_url[..default_url.len().min(140)]);
+                for q in &qualities {
+                    eprintln!("  - {}", q.label);
+                }
+            }
             Err(e) => eprintln!("FLV FAIL: {}", e),
         }
     }

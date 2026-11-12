@@ -53,6 +53,13 @@ pub fn platform_auth(platform: &str) -> Option<PlatformAuth> {
             session_cookies: &["kuaishou.live.web_st", "kuaishou.server.web_st", "userId"],
             label: "快手",
         }),
+        "douyin" => Some(PlatformAuth {
+            // 抖音：内嵌登录后 sessionid 可解锁关键词搜索（需用户在窗口内完成扫码/验证码）
+            login_url: "https://www.douyin.com/",
+            cookie_uri: "https://www.douyin.com/",
+            session_cookies: &["sessionid", "sessionid_ss"],
+            label: "抖音",
+        }),
         _ => None,
     }
 }

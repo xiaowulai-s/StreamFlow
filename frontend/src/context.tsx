@@ -24,6 +24,8 @@ export interface AppContextType {
   mergeFavorites: (rooms: Room[]) => number;
   history: HistoryItem[];
   clearHistory: () => void;
+  /** 应用历史保留期限（天，0=永久）：立即重裁观看历史 */
+  applyRetention: (days: number) => void;
   /** 三平台登录状态（全局共享，设置页操作后刷新） */
   authStatus: AuthStatus[] | null;
   refreshAuth: () => void;

@@ -81,7 +81,7 @@ export default function App() {
   }, []);
 
   const { favorites, isFavorite, toggleFavorite, mergeFavorites } = useFavorites();
-  const { history, addHistory, clearHistory } = useHistory();
+  const { history, addHistory, clearHistory, applyRetention } = useHistory();
   const { pref: theme, effective: effectiveTheme, setPref: setTheme } = useTheme();
 
   // 三平台登录状态：启动拉取，设置页登录/退出后刷新
@@ -117,6 +117,7 @@ export default function App() {
         mergeFavorites,
         history,
         clearHistory,
+        applyRetention,
         authStatus,
         refreshAuth,
         theme,

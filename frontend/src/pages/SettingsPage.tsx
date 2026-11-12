@@ -3,7 +3,7 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 import {
   checkForUpdate,
-  checkPlatformConnectivity,
+  checkPlatformHealth,
   clearWebviewCache,
   downloadAndInstallUpdate,
   exportAuth,
@@ -54,6 +54,7 @@ export function SettingsPage() {
     toggleFollowVisible,
     disabledPlatforms,
     togglePlatformEnabled,
+    applyRetention,
   } = useApp();
   const [status, setStatus] = useState<AuthStatus[] | null>(null);
   const [busy, setBusy] = useState<string | null>(null);
@@ -63,6 +64,8 @@ export function SettingsPage() {
   // 6.2 播放设置
   const [defaultMuted, setDefaultMuted] = useState(false);
   const [defaultOpenMode, setDefaultOpenMode] = useState<'internal' | 'external'>('internal');
+  // 6.3 历史保留期限（天）
+  const [retentionDays, setRetentionDays] = useState(0);
   // 6.1 连接检测：platform -> 状态文案
   const [connResults, setConnResults] = useState<Record<string, string>>({});
   // 应用内自更新
@@ -131,12 +134,25 @@ export function SettingsPage() {
     }
   };
 
-  /** 6.1 平台连通性检测 */
+  /** 6.3 历史保留期限 */
+  const handleRetention = (days: number) => {
+    setRetentionDays(days);
+    applyRetention(days);
+    void setSetting('history_retention_days', String(days)).catch(() => undefined);
+  };
+
+  /** 6.1 平台失效监测：门户连通 + 核心接口验证 */
   const handleCheckConn = async (platform: string) => {
     setConnResults((prev) => ({ ...prev, [platform]: '检测中…' }));
     try {
-      const ms = await checkPlatformConnectivity(platform);
-      setConnResults((prev) => ({ ...prev, [platform]: `正常（${ms}ms）` }));
+      const h = await checkPlatformHealth(platform);
+      const portal = h.portalMs != null ? `门户 ${h.portalMs}ms` : (h.portalError ?? '门户失败');
+      const api = h.apiOk ? `接口正常（${h.roomCount}）` : `接口失效：${h.apiDetail}`;
+      const ok = h.portalMs != null && h.apiOk;
+      setConnResults((prev) => ({
+        ...prev,
+        [platform]: `${ok ? '正常' : '异常'}：${portal} · ${api}`,
+      }));
     } catch (e) {
       setConnResults((prev) => ({ ...prev, [platform]: `异常：${String(e).slice(0, 60)}` }));
     }
@@ -154,6 +170,11 @@ export function SettingsPage() {
     void getSetting('player_default_muted').then((v) => setDefaultMuted(v === 'true')).catch(() => undefined);
     void getSetting('default_open_mode').then((v) => {
       if (v === 'internal' || v === 'external') setDefaultOpenMode(v);
+    }).catch(() => undefined);
+    // 历史保留期限现状
+    void getSetting('history_retention_days').then((v) => {
+      const n = Number(v);
+      if (Number.isFinite(n) && n > 0) setRetentionDays(n);
     }).catch(() => undefined);
     // 应用版本（tauri.conf.json）
     void getAppVersion().then((v) => setAppVersion(v ?? '未知')).catch(() => setAppVersion('未知'));
@@ -525,6 +546,32 @@ export function SettingsPage() {
           >
             {busy === 'cache' ? '清理中…' : '清理网页缓存'}
           </button>
+        </div>
+        <div className="mt-3 flex items-center gap-2 text-xs">
+          <span className="text-slate">观看历史保留</span>
+          {(
+            [
+              { v: 0, label: '永久' },
+              { v: 7, label: '7 天' },
+              { v: 30, label: '30 天' },
+              { v: 90, label: '90 天' },
+            ] as const
+          ).map((opt) => (
+            <button
+              key={opt.v}
+              onClick={() => handleRetention(opt.v)}
+              className={`rounded-lg border px-3 py-1.5 text-[10px] transition-colors ${
+                retentionDays === opt.v
+                  ? 'border-stream bg-stream/10 text-stream'
+                  : 'border-line text-slate hover:border-stream/60 hover:text-ink'
+              }`}
+            >
+              {opt.label}
+            </button>
+          ))}
+          {retentionDays > 0 && (
+            <span className="text-[10px] text-slate">过期记录将在启动与进入应用时清理</span>
+          )}
         </div>
       </div>
 

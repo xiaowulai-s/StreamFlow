@@ -120,6 +120,8 @@ impl KuaishouAdapter {
         Self {
             client: Client::builder()
                 .timeout(Duration::from_secs(12))
+                // 快手对 HTTP/2 请求存在 TLS 指纹级风控（2026-11 实测 curl/1.1 可通而 reqwest h2 被拒），锁定 1.1
+                .http1_only()
                 .build()
                 .unwrap(),
             catalog: RwLock::new(None),
@@ -135,10 +137,19 @@ impl KuaishouAdapter {
             .query(query)
             .header("User-Agent", USER_AGENT)
             .header("Referer", REFERER)
+            // 快手对非浏览器头集存在指纹风控（2026-11 实测：缺 Accept/Accept-Language 的
+            // 裸 reqwest 请求被拒，curl 同头可通），补齐浏览器级头集
+            .header("Accept", "application/json, text/plain, */*")
+            .header("Accept-Language", "zh-CN,zh;q=0.9")
             .send()
-            .await?
-            .error_for_status()?;
-        Ok(resp.json().await?)
+            .await?;
+        let status = resp.status();
+        let body = resp.text().await.unwrap_or_default();
+        log::debug!("[ks] {} -> {} len={} head={}", url, status, body.len(), &body[..body.len().min(100)]);
+        if !status.is_success() {
+            anyhow::bail!("HTTP {}: {}", status, &body[..body.len().min(80)]);
+        }
+        Ok(serde_json::from_str(&body).map_err(|e| anyhow::anyhow!("JSON 解析失败({} 字节): {}", body.len(), e))?)
     }
 
     async fn categories(&self) -> anyhow::Result<Vec<KsCategory>> {
@@ -225,11 +236,13 @@ impl KuaishouAdapter {
             board_ids.push("1001".to_string());
         }
 
-        let boards = futures::future::join_all(board_ids.iter().map(|id| self.fetch_board(id))).await;
+        // 快手风控：并发 gameboard 请求会被降级为空数据（2026-11-12 实测，
+        // 并发 6 个全部返回 {"data":{"list":[]}}，串行正常），必须串行请求
         let mut rooms = Vec::new();
         let mut seen = HashSet::new();
-        for board in boards {
-            match board {
+        let mut errs: Vec<String> = Vec::new();
+        for id in &board_ids {
+            match self.fetch_board(id).await {
                 Ok(list) => {
                     for room in list {
                         if seen.insert(room.id.clone()) {
@@ -237,11 +250,16 @@ impl KuaishouAdapter {
                         }
                     }
                 }
-                Err(e) => log::warn!("快手榜单获取失败：{}", e),
+                Err(e) => {
+                    // 失效监测需要根因：聚合进最终错误
+                    let msg = format!("{}", &e.to_string()[..e.to_string().len().min(80)]);
+                    log::warn!("快手榜单获取失败：{}", msg);
+                    errs.push(msg);
+                }
             }
         }
         if rooms.is_empty() {
-            anyhow::bail!("快手分类榜单暂时不可用");
+            anyhow::bail!("快手分类榜单暂时不可用（{}）", errs.join(" | "));
         }
 
         *self.catalog.write().unwrap() = Some((Instant::now(), rooms.clone()));

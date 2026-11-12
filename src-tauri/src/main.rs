@@ -93,6 +93,7 @@ fn run() -> Result<(), Box<dyn std::error::Error>> {
             commands::import_auth_file,
             commands::open_external,
             commands::check_platform_connectivity,
+            commands::check_platform_health,
             commands::clear_webview_cache,
             commands::check_app_update,
             commands::install_app_update,

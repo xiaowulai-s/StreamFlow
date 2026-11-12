@@ -16,7 +16,7 @@ use crate::{AdapterError, AdapterResult, LiveStatus, QualityOption, RoomInfo, St
 use async_trait::async_trait;
 use reqwest::Client;
 use serde_json::Value;
-use std::sync::OnceLock;
+use std::sync::{Arc, OnceLock, RwLock};
 use std::time::Duration;
 
 const USER_AGENT: &str = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36";
@@ -30,6 +30,7 @@ const PLATFORM: &str = "douyin";
 #[derive(Clone)]
 pub struct DouyinAdapter {
     client: Client,
+    cookies: Arc<RwLock<Option<String>>>,
 }
 
 impl DouyinAdapter {
@@ -39,7 +40,99 @@ impl DouyinAdapter {
                 .timeout(Duration::from_secs(12))
                 .build()
                 .unwrap(),
+            cookies: Arc::new(RwLock::new(None)),
         }
+    }
+
+    /// 当前持有的登录 cookie（无则为 None）
+    fn current_cookie(&self) -> Option<String> {
+        self.cookies.read().unwrap().clone().filter(|c| !c.is_empty())
+    }
+
+    /// 登录态注入（auth.rs 统一入口）
+    fn set_cookies(&self, cookie: Option<String>) {
+        *self.cookies.write().unwrap() = cookie.filter(|c| !c.is_empty());
+    }
+
+    /// 访问直播首页拿游客 ttwid（搜索接口需要）
+    async fn fetch_ttwid(&self) -> Option<String> {
+        let resp = self
+            .client
+            .get("https://live.douyin.com/")
+            .header("User-Agent", crate::reverse::douyin_abogus::USER_AGENT)
+            .send()
+            .await
+            .ok()?;
+        let cookies: Vec<String> = resp
+            .headers()
+            .get_all(reqwest::header::SET_COOKIE)
+            .iter()
+            .filter_map(|v| v.to_str().ok())
+            .map(|s| s.split(';').next().unwrap_or("").to_string())
+            .filter(|s| s.starts_with("ttwid="))
+            .collect();
+        if cookies.is_empty() {
+            None
+        } else {
+            Some(cookies.join("; "))
+        }
+    }
+
+    /// 登录态关键词搜索：/aweme/v1/web/live/search/（a_bogus 签名 + 登录 cookie）
+    /// 失败时返回 Err，由调用方降级到热门 feed 匹配。
+    async fn web_live_search(&self, keyword: &str) -> anyhow::Result<Vec<RoomInfo>> {
+        let login_cookie = self.current_cookie();
+        let ttwid = self.fetch_ttwid().await.unwrap_or_default();
+        let mut cookie_header = ttwid;
+        if let Some(c) = &login_cookie {
+            if !cookie_header.is_empty() {
+                cookie_header.push_str("; ");
+            }
+            cookie_header.push_str(c);
+        }
+
+        let params = format!(
+            "device_platform=webapp&aid=6383&channel=channel_pc_web&search_channel=aweme_live&keyword={kw}\
+             &search_source=normal_search&query_correct_type=1&is_filter_search=0&from_group_id=&offset=0&count=15\
+             &pc_client_type=1&version_code=170400&version_name=17.4.0&cookie_enabled=true&screen_width=1920\
+             &screen_height=1080&browser_language=zh-CN&browser_platform=Win32&browser_name=Chrome\
+             &browser_version=130.0.0.0&browser_online=true&engine_name=Blink&engine_version=130.0.0.0\
+             &os_name=Windows&os_version=10&cpu_core_num=12&memory_info=8&platform=PC&downlink=10\
+             &effective_type=4g&round_trip_time=50&webid=7300000000000000000",
+            kw = urlencoding::encode(keyword)
+        );
+        let a_bogus = crate::reverse::douyin_abogus::get_value(&params, "GET");
+        let url = format!(
+            "https://www.douyin.com/aweme/v1/web/live/search/?{}&a_bogus={}",
+            params,
+            urlencoding::encode(&a_bogus)
+        );
+
+        let resp = self
+            .client
+            .get(&url)
+            .header("User-Agent", crate::reverse::douyin_abogus::USER_AGENT)
+            .header("Referer", format!("https://www.douyin.com/search/{}", urlencoding::encode(keyword)))
+            .header("Cookie", cookie_header)
+            .send()
+            .await?
+            .error_for_status()?;
+        let json: Value = resp.json().await?;
+        let code = json_i64(json.get("status_code").unwrap_or(&Value::Null));
+        if code != Some(0) {
+            anyhow::bail!(
+                "搜索接口 status_code={:?}: {}",
+                code,
+                json.get("status_msg").and_then(|v| v.as_str()).unwrap_or("unknown")
+            );
+        }
+        let list = json
+            .pointer("/data/aweme_list")
+            .and_then(|v| v.as_array())
+            .cloned()
+            .unwrap_or_default();
+        let rooms: Vec<RoomInfo> = list.iter().filter_map(parse_live_search_item).collect();
+        Ok(rooms)
     }
 
     /// 当前抖音房间号是 19 位数字；较短的纯数字按 web_rid 处理
@@ -239,6 +332,60 @@ fn normalize_https(url: &str) -> String {
 }
 
 /// reflow/feed 的房间结构一致，统一映射
+/// 解析 web/live/search 返回的 aweme_list 项（结构因版本而异，多路径宽松解析）。
+/// 兼容两种形态：{room: {...}} 嵌套 与 扁平 {aweme_id/desc/author...}。
+fn parse_live_search_item(item: &Value) -> Option<RoomInfo> {
+    if let Some(room) = item.get("room") {
+        return room_info_from_room(room);
+    }
+    // 扁平形态：房间 id 取 room_id / group_id / aweme_id（web_rid 型）
+    let id = ["room_id", "group_id", "aweme_id", "web_rid"]
+        .iter()
+        .find_map(|k| {
+            item.get(k)
+                .and_then(Value::as_str)
+                .filter(|s| !s.is_empty())
+                .map(str::to_string)
+        })
+        .or_else(|| {
+            item.get("room_id")
+                .and_then(Value::as_i64)
+                .map(|v| v.to_string())
+        })?;
+    let title = item
+        .get("desc")
+        .and_then(Value::as_str)
+        .filter(|s| !s.is_empty())
+        .unwrap_or("抖音直播")
+        .to_string();
+    let username = item
+        .pointer("/author/nickname")
+        .and_then(Value::as_str)
+        .filter(|s| !s.is_empty())
+        .unwrap_or("未知主播")
+        .to_string();
+    let cover = item
+        .pointer("/cover/url_list/0")
+        .or_else(|| item.pointer("/video/cover/url_list/0"))
+        .and_then(Value::as_str)
+        .map(str::to_string);
+    let view_count = item
+        .pointer("/room_view_stats/display_value")
+        .and_then(Value::as_str)
+        .and_then(|s| s.replace("万人观看", "0000").replace("人观看", "").parse::<u64>().ok())
+        .unwrap_or(0);
+    Some(RoomInfo {
+        id,
+        platform: PLATFORM.to_string(),
+        title,
+        username,
+        view_count,
+        status: LiveStatus::Live,
+        cover,
+        started_at: None,
+    })
+}
+
 fn room_info_from_room(room: &Value) -> Option<RoomInfo> {
     let id = room_id_str(room)?;
     let title = room
@@ -338,6 +485,10 @@ impl crate::adapter::PlatformAdapter for DouyinAdapter {
         PLATFORM
     }
 
+    fn set_cookies(&self, cookie: Option<String>) {
+        *self.cookies.write().unwrap() = cookie.filter(|c| !c.is_empty());
+    }
+
     fn capabilities(&self) -> crate::adapter::PlatformCapability {
         crate::adapter::PlatformCapability::SEARCH
             | crate::adapter::PlatformCapability::ROOM_DETAIL
@@ -360,7 +511,16 @@ impl crate::adapter::PlatformAdapter for DouyinAdapter {
             }
         }
 
-        // 关键词搜索需 a_bogus 签名：暂用热门 feed 做有限匹配
+        // 关键词搜索：登录态走真实搜索接口（a_bogus 签名）；
+        // 未登录/失败时降级热门 feed 做有限匹配
+        let logged_in = self.current_cookie().is_some();
+        if logged_in {
+            match self.web_live_search(kw).await {
+                Ok(rooms) if !rooms.is_empty() => return Ok(rooms),
+                Ok(_) => log::info!("抖音 web 搜索无结果，回退热门匹配"),
+                Err(e) => log::warn!("抖音 web 搜索失败（{}），回退热门匹配", e),
+            }
+        }
         let lower = kw.to_lowercase();
         match self.fetch_feed(30).await {
             Ok(items) => Ok(items
