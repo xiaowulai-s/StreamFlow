@@ -328,56 +328,66 @@ fn normalize_https(url: &str) -> String {
 }
 
 /// reflow/feed 的房间结构一致，统一映射
-/// 解析 web/live/search 返回的 aweme_list 项（结构因版本而异，多路径宽松解析）。
-/// 兼容两种形态：{room: {...}} 嵌套 与 扁平 {aweme_id/desc/author...}。
+/// 解析 web/live/search 返回的 aweme_list 项。
+/// 实测结构（2026-11-12）：每项为 {lives: <aweme 对象>, related_config, type}，
+/// 直播卡片 lives.aweme_type=101，group_id 即直播间房间 id（19 位）。
 fn parse_live_search_item(item: &Value) -> Option<RoomInfo> {
-    if let Some(room) = item.get("room") {
-        return room_info_from_room(room);
+    // 兼容直接返回房间对象（无 lives 包装）的旧结构
+    if item.get("lives").is_none() && room_id_str(item).is_some() {
+        return room_info_from_room(item);
     }
-    // 扁平形态：房间 id 取 room_id / group_id / aweme_id（web_rid 型）
-    let id = ["room_id", "group_id", "aweme_id", "web_rid"]
-        .iter()
-        .find_map(|k| {
-            item.get(k)
-                .and_then(Value::as_str)
-                .filter(|s| !s.is_empty())
-                .map(str::to_string)
-        })
+    let lives = item.get("lives")?;
+    // 只收直播卡片（101），普通视频搜索结果丢弃
+    if lives.get("aweme_type").and_then(Value::as_i64) != Some(101) {
+        return None;
+    }
+    // 房间号：author.web_rid（最稳，直达 reflow；实测为数字型）优先，group_id 兜底
+    let val_to_id = |v: &Value| -> Option<String> {
+        v.as_str()
+            .map(str::to_string)
+            .or_else(|| v.as_i64().map(|n| n.to_string()))
+            .filter(|s| !s.is_empty())
+    };
+    let id = lives
+        .pointer("/author/web_rid")
+        .or_else(|| lives.pointer("/author/room_id_str"))
+        .or_else(|| lives.pointer("/author/room_id"))
+        .and_then(val_to_id)
         .or_else(|| {
-            item.get("room_id")
-                .and_then(Value::as_i64)
-                .map(|v| v.to_string())
+            lives
+                .get("group_id")
+                .and_then(val_to_id)
         })?;
-    let title = item
-        .get("desc")
-        .and_then(Value::as_str)
-        .filter(|s| !s.is_empty())
-        .unwrap_or("抖音直播")
-        .to_string();
-    let username = item
+    if id.is_empty() {
+        return None;
+    }
+    let username = lives
         .pointer("/author/nickname")
         .and_then(Value::as_str)
         .filter(|s| !s.is_empty())
         .unwrap_or("未知主播")
         .to_string();
-    let cover = item
-        .pointer("/cover/url_list/0")
-        .or_else(|| item.pointer("/video/cover/url_list/0"))
+    let title = lives
+        .pointer("/video/desc")
+        .or_else(|| lives.pointer("/video_text"))
+        .and_then(Value::as_str)
+        .filter(|s| !s.is_empty())
+        .map(str::to_string)
+        .unwrap_or_else(|| format!("{} 的直播", username));
+    let cover = lives
+        .pointer("/video/cover/url_list/0")
+        .or_else(|| lives.pointer("/video/big_thumbs/url_list/0"))
+        .or_else(|| lives.pointer("/video/origin_cover/url_list/0"))
         .and_then(Value::as_str)
         .map(str::to_string);
-    let view_count = item
-        .pointer("/room_view_stats/display_value")
-        .and_then(Value::as_str)
-        .and_then(|s| s.replace("万人观看", "0000").replace("人观看", "").parse::<u64>().ok())
-        .unwrap_or(0);
     Some(RoomInfo {
         id,
         platform: PLATFORM.to_string(),
         title,
         username,
-        view_count,
+        view_count: 0,
         status: LiveStatus::Live,
-        cover,
+        cover: crate::adapter::normalize_cover_url(cover),
         started_at: None,
     })
 }
@@ -511,10 +521,16 @@ impl crate::adapter::PlatformAdapter for DouyinAdapter {
         // 未登录/失败时降级热门 feed 做有限匹配
         let logged_in = self.current_cookie().is_some();
         if logged_in {
-            match self.web_live_search(kw).await {
-                Ok(rooms) if !rooms.is_empty() => return Ok(rooms),
-                Ok(_) => log::info!("抖音 web 搜索无结果，回退热门匹配"),
-                Err(e) => log::warn!("抖音 web 搜索失败（{}），回退热门匹配", e),
+            // 优先页面环境 fetch（唯一有效通路，见 reverse/webctx.rs 模块注释）
+            match crate::reverse::webctx::live_search(kw).await {
+                Ok(list) => {
+                    let rooms: Vec<RoomInfo> = list.iter().filter_map(parse_live_search_item).collect();
+                    if !rooms.is_empty() {
+                        return Ok(rooms);
+                    }
+                    log::info!("抖音页面环境搜索无结果，回退热门匹配");
+                }
+                Err(e) => log::warn!("抖音页面环境搜索失败（{}），回退热门匹配", e),
             }
         }
         let lower = kw.to_lowercase();

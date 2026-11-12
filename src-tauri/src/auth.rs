@@ -335,7 +335,13 @@ pub async fn complete_login(
         .adapters
         .set_platform_cookies(&platform, Some(session.cookie.clone()));
     // 关闭登录窗口
-    let _ = win.close();
+    // 抖音特殊：隐藏窗口保留页面环境（搜索等登录态接口经此窗口页面内 fetch，
+    // 实验证明独立 HTTP 客户端会被风控降级空数据，页面环境是唯一通路）
+    if platform == "douyin" {
+        let _ = win.hide();
+    } else {
+        let _ = win.close();
+    }
     log::info!("{} 登录成功，cookie 已保存", cfg.label);
     Ok(session)
 }

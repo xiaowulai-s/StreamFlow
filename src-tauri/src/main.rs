@@ -127,6 +127,9 @@ fn run() -> Result<(), Box<dyn std::error::Error>> {
             let state = app.state::<AppState>();
             auth::load_into_adapters(app.handle(), &state);
 
+            // 抖音页面环境搜索的本地回传 listener（详见 reverse/webctx.rs）
+            streamflow_lib::reverse::webctx::init(app.handle().clone());
+
             // 诊断开关：STREAMFLOW_DEBUG_LOGIN=huya|douyu|bilibili 时启动后自动打开
             // 对应平台的登录窗口，用于排查 WebView2 白屏；正常启动不触发。
             if let Ok(platform) = std::env::var("STREAMFLOW_DEBUG_LOGIN") {
