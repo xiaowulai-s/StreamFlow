@@ -244,6 +244,20 @@ impl KuaishouAdapter {
         let mut errs: Vec<String> = Vec::new();
         for id in &board_ids {
             match self.fetch_board(id).await {
+                Ok(list) if list.is_empty() => {
+                    // 空数据=风控降级（偶发波动），延迟后重试一次
+                    tokio::time::sleep(std::time::Duration::from_millis(600)).await;
+                    match self.fetch_board(id).await {
+                        Ok(list2) if !list2.is_empty() => {
+                            for room in list2 {
+                                if seen.insert(room.id.clone()) {
+                                    rooms.push(room);
+                                }
+                            }
+                        }
+                        _ => errs.push(format!("榜单 {} 空数据（重试后仍空）", id)),
+                    }
+                }
                 Ok(list) => {
                     for room in list {
                         if seen.insert(room.id.clone()) {

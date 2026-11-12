@@ -4,8 +4,8 @@ import { useEffect, useRef, useState, type ReactNode } from 'react';
 import Hls from 'hls.js';
 import mpegts from 'mpegts.js';
 import { useApp } from '../context';
-import { getStreamUrls, getSetting, openExternal, setSetting } from '../lib/tauri';
-import { platformRoomUrl, type QualityOption } from '../lib/types';
+import { getRoomDetail, getStreamUrls, getSetting, openExternal, setSetting } from '../lib/tauri';
+import { platformRoomUrl, type QualityOption, type Room } from '../lib/types';
 import { PlatformBadge } from '../components/PlatformBadge';
 import { EmptyState } from '../components/EmptyState';
 import { DanmakuPanel } from '../components/DanmakuPanel';
@@ -58,6 +58,21 @@ export function WatchPage() {
     })();
   }, [watching?.id]);
 
+  // 房间详情：覆盖进入时的卡片信息（真实标题/观看人数/开播状态）
+  const [detail, setDetail] = useState<Room | null>(null);
+  useEffect(() => {
+    if (!watching) return;
+    let disposed = false;
+    setDetail(null);
+    getRoomDetail(watching.platform, watching.id)
+      .then((d) => {
+        if (!disposed) setDetail(d);
+      })
+      .catch(() => undefined);
+    return () => {
+      disposed = true;
+    };
+  }, [watching?.id]);
   // 房间变化 / 手动刷新 → 获取直播流地址
   useEffect(() => {
     if (!watching) return;
@@ -161,6 +176,9 @@ export function WatchPage() {
     );
   }
 
+  // 展示信息：详情优先（人数/真实标题等搜索卡片上没有的字段）
+  const info = detail ?? watching;
+
   const externalUrl =
     loadError?.match(/https?:\/\/[^"\s}]+/)?.[0] ??
     platformRoomUrl(watching.platform, watching.id);
@@ -181,6 +199,16 @@ export function WatchPage() {
       await openExternal(externalUrl);
       setExternalOpened(true);
       setTimeout(() => setExternalOpened(false), 2000);
+      // 按平台记忆：该平台记住"外部打开"偏好，首页卡片点击将直接外部打开
+      if (watching) {
+        void getSetting('platform_open_modes')
+          .then((v) => {
+            const obj = v ? (JSON.parse(v) as Record<string, string>) : {};
+            obj[watching.platform] = 'external';
+            return setSetting('platform_open_modes', JSON.stringify(obj));
+          })
+          .catch(() => undefined);
+      }
     } catch {
       // 打开失败时静默（外部链接已可复制）
     }
@@ -213,11 +241,11 @@ export function WatchPage() {
                 <AlertIcon size={34} />
               </span>
               <p className="text-sm font-medium text-white">
-                {watching.status !== 'live'
+                {info.status !== 'live'
                   ? '该主播当前未开播（休眠中），开播后即可观看'
                   : loadError}
               </p>
-              {watching.status === 'live' && <p className="text-xs text-white/70">{loadError}</p>}
+              {info.status === 'live' && <p className="text-xs text-white/70">{loadError}</p>}
               <div className="flex gap-2">
                 <button
                   onClick={() => setReloadKey((k) => k + 1)}
@@ -287,9 +315,9 @@ export function WatchPage() {
             <span className="text-xs text-slate">房间 {watching.id}</span>
           </div>
           <h2 className="mt-3 line-clamp-2 text-lg font-bold leading-snug text-ink">
-            {watching.title}
+            {info.title}
           </h2>
-          <p className="mt-2 text-sm text-slate">{watching.username || '未知主播'}</p>
+          <p className="mt-2 text-sm text-slate">{info.username || '未知主播'}</p>
 
           <button
             onClick={() => toggleFavorite(watching)}
@@ -329,7 +357,7 @@ export function WatchPage() {
               <div className="flex justify-between">
                 <span>观看人数</span>
                 <span className="text-ink">
-                  {watching.viewCount > 0 ? watching.viewCount.toLocaleString() : '—（接口未提供）'}
+                  {info.viewCount > 0 ? info.viewCount.toLocaleString() : '—（接口未提供）'}
                 </span>
               </div>
               <div className="flex justify-between">

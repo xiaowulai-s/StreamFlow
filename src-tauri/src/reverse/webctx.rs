@@ -163,11 +163,11 @@ fn wait_result(timeout: std::time::Duration) -> Option<String> {
     }
 }
 
-/// 在隐藏的抖音页面环境里执行 fetch 搜索，返回 JSON 文本
+/// 在隐藏的抖音页面环境里执行任意 GET fetch，返回响应文本。
 ///
 /// 页面来源：`login-douyin` 窗口（登录成功后 hide 保留）。窗口不存在时
 /// 惰性创建隐藏窗口（同登录 data_directory → 共享登录 cookie，应用重启后自动恢复）。
-pub async fn live_search(keyword: &str) -> anyhow::Result<Vec<serde_json::Value>> {
+pub async fn fetch_page(url: &str) -> anyhow::Result<String> {
     let app = APP.get().ok_or_else(|| anyhow::anyhow!("webctx 未初始化"))?;
     let win = match app.get_webview_window("login-douyin") {
         Some(w) => w,
@@ -175,10 +175,9 @@ pub async fn live_search(keyword: &str) -> anyhow::Result<Vec<serde_json::Value>
     };
 
     // 页面必须在抖音域（用户可能在窗口里手动导航走了）
-    let url = win.url().map(|u| u.to_string()).unwrap_or_default();
-    if !url.contains("douyin.com") {
-        use tauri::Manager;
-        let _ = win.eval("location.href='https://live.douyin.com/'");
+    let cur = win.url().map(|u| u.to_string()).unwrap_or_default();
+    if !cur.contains("douyin.com") {
+        let _ = win.eval("location.href='https://www.douyin.com/'");
         for _ in 0..20 {
             tokio::time::sleep(std::time::Duration::from_millis(500)).await;
             let u = win.url().map(|u| u.to_string()).unwrap_or_default();
@@ -190,18 +189,6 @@ pub async fn live_search(keyword: &str) -> anyhow::Result<Vec<serde_json::Value>
         tokio::time::sleep(std::time::Duration::from_millis(2000)).await;
     }
 
-    // 构造参数串（与 Playwright 实验一致的参数集；不含 msToken/a_bogus——页面环境不需要）
-    let params = format!(
-        "device_platform=webapp&aid=6383&channel=channel_pc_web&search_channel=aweme_live&keyword={kw}\
-         &search_source=normal_search&query_correct_type=1&is_filter_search=0&from_group_id=&offset=0&count=15\
-         &pc_client_type=1&version_code=170400&version_name=17.4.0&cookie_enabled=true&screen_width=1920\
-         &screen_height=1080&browser_language=zh-CN&browser_platform=Win32&browser_name=Chrome\
-         &browser_version=130.0.0.0&browser_online=true&engine_name=Blink&engine_version=130.0.0.0\
-         &os_name=Windows&os_version=10&cpu_core_num=12&memory_info=8&platform=PC&downlink=10\
-         &effective_type=4g&round_trip_time=50",
-        kw = urlencoding::encode(keyword)
-    );
-    let api_url = format!("https://www.douyin.com/aweme/v1/web/live/search/?{}", params);
     let cb = format!("http://127.0.0.1:{}/result", port());
 
     // 清空结果槽
@@ -221,34 +208,79 @@ pub async fn live_search(keyword: &str) -> anyhow::Result<Vec<serde_json::Value>
             }} catch (e) {{
                 try {{ await send("E:" + e.message); }} catch (_) {{}}
             }}
-        }})()"#, 
-        url = api_url.replace('"', "%22"),
+        }})()"#,
+        url = url.replace('"', "%22"),
         cb = cb,
     );
     win.eval(&js)
         .map_err(|e| anyhow::anyhow!("eval 注入失败: {}", e))?;
 
-    let body = wait_result(std::time::Duration::from_secs(12))
-        .ok_or_else(|| anyhow::anyhow!("页面环境搜索超时（12s）"))?;
+    wait_result(std::time::Duration::from_secs(12))
+        .ok_or_else(|| anyhow::anyhow!("页面环境请求超时（12s）"))
+}
 
+/// 校验抖音接口响应：剥 E: 前缀、断言 status_code=0，返回 JSON
+fn parse_api_response(body: &str, api: &str) -> anyhow::Result<serde_json::Value> {
     if let Some(err) = body.strip_prefix("E:") {
         anyhow::bail!("页面 fetch 失败: {}", err);
     }
     let json: serde_json::Value =
-        serde_json::from_str(&body).map_err(|e| anyhow::anyhow!("响应非 JSON: {}", e))?;
+        serde_json::from_str(body).map_err(|e| anyhow::anyhow!("{} 响应非 JSON: {}", api, e))?;
     let code = json.get("status_code").and_then(|v| v.as_i64()).unwrap_or(-1);
     if code != 0 {
         anyhow::bail!(
-            "搜索接口 status_code={}: {}",
+            "{} status_code={}: {}",
+            api,
             code,
             json.get("status_msg").and_then(|v| v.as_str()).unwrap_or("unknown")
         );
     }
-    let list = json
+    Ok(json)
+}
+
+/// 搜索（页面环境）
+pub async fn live_search(keyword: &str) -> anyhow::Result<Vec<serde_json::Value>> {
+    let params = format!(
+        "device_platform=webapp&aid=6383&channel=channel_pc_web&search_channel=aweme_live&keyword={kw}\
+         &search_source=normal_search&query_correct_type=1&is_filter_search=0&from_group_id=&offset=0&count=15\
+         &pc_client_type=1&version_code=170400&version_name=17.4.0&cookie_enabled=true&screen_width=1920\
+         &screen_height=1080&browser_language=zh-CN&browser_platform=Win32&browser_name=Chrome\
+         &browser_version=130.0.0.0&browser_online=true&engine_name=Blink&engine_version=130.0.0.0\
+         &os_name=Windows&os_version=10&cpu_core_num=12&memory_info=8&platform=PC&downlink=10\
+         &effective_type=4g&round_trip_time=50",
+        kw = urlencoding::encode(keyword)
+    );
+    let api_url = format!("https://www.douyin.com/aweme/v1/web/live/search/?{}", params);
+    let body = fetch_page(&api_url).await?;
+    let json = parse_api_response(&body, "live/search")?;
+    Ok(json
         .pointer("/data")
         .and_then(|v| v.as_array())
         .cloned()
-        .unwrap_or_default();
-    Ok(list)
+        .unwrap_or_default())
+}
+
+/// 关注 feed（页面环境，需登录态）：返回 aweme 对象数组
+pub async fn follow_feed() -> anyhow::Result<Vec<serde_json::Value>> {
+    let api_url = "https://www.douyin.com/aweme/v1/web/follow/feed/?aid=6383&count=20&cursor=0";
+    let body = fetch_page(api_url).await?;
+    let json = parse_api_response(&body, "follow/feed")?;
+    Ok(json
+        .pointer("/data")
+        .and_then(|v| v.as_array())
+        .cloned()
+        .unwrap_or_default())
+}
+
+/// 直播推荐 feed（页面环境，游客可用）：返回房间对象数组
+pub async fn live_recommend() -> anyhow::Result<Vec<serde_json::Value>> {
+    let api_url = "https://live.douyin.com/webcast/feed/?aid=6383&count=20";
+    let body = fetch_page(api_url).await?;
+    let json = parse_api_response(&body, "webcast/feed")?;
+    Ok(json
+        .pointer("/data")
+        .and_then(|v| v.as_array())
+        .cloned()
+        .unwrap_or_default())
 }
  

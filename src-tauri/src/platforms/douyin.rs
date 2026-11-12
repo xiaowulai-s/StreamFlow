@@ -337,14 +337,25 @@ fn normalize_https(url: &str) -> String {
 /// 解析 web/live/search 返回的 aweme_list 项。
 /// 实测结构（2026-11-12）：每项为 {lives: <aweme 对象>, related_config, type}，
 /// 直播卡片 lives.aweme_type=101，group_id 即直播间房间 id（19 位）。
+/// 搜索结果项：{lives: <aweme>, type} 包装
 fn parse_live_search_item(item: &Value) -> Option<RoomInfo> {
     // 兼容直接返回房间对象（无 lives 包装）的旧结构
     if item.get("lives").is_none() && room_id_str(item).is_some() {
         return room_info_from_room(item);
     }
-    let lives = item.get("lives")?;
+    parse_aweme_live(item.get("lives")?)
+}
+
+/// 关注 feed 项：{aweme: <aweme>, ...} 包装
+fn parse_follow_feed_item(item: &Value) -> Option<RoomInfo> {
+    parse_aweme_live(item.get("aweme")?)
+}
+
+/// 解析直播 aweme 对象（搜索/关注 feed 共用核心）。
+/// 只收直播卡片（aweme_type=101），普通视频丢弃。
+fn parse_aweme_live(aweme: &Value) -> Option<RoomInfo> {
     // 只收直播卡片（101），普通视频搜索结果丢弃
-    if lives.get("aweme_type").and_then(Value::as_i64) != Some(101) {
+    if aweme.get("aweme_type").and_then(Value::as_i64) != Some(101) {
         return None;
     }
     // 房间号：author.web_rid（最稳，直达 reflow；实测为数字型）优先，group_id 兜底
@@ -354,36 +365,37 @@ fn parse_live_search_item(item: &Value) -> Option<RoomInfo> {
             .or_else(|| v.as_i64().map(|n| n.to_string()))
             .filter(|s| !s.is_empty())
     };
-    let id = lives
+    let id = aweme
         .pointer("/author/web_rid")
-        .or_else(|| lives.pointer("/author/room_id_str"))
-        .or_else(|| lives.pointer("/author/room_id"))
+        .or_else(|| aweme.pointer("/author/room_id_str"))
+        .or_else(|| aweme.pointer("/author/room_id"))
         .and_then(val_to_id)
         .or_else(|| {
-            lives
+            aweme
                 .get("group_id")
                 .and_then(val_to_id)
-        })?;
+        })
+        .or_else(|| aweme.get("aweme_id").and_then(val_to_id))?;
     if id.is_empty() {
         return None;
     }
-    let username = lives
+    let username = aweme
         .pointer("/author/nickname")
         .and_then(Value::as_str)
         .filter(|s| !s.is_empty())
         .unwrap_or("未知主播")
         .to_string();
-    let title = lives
+    let title = aweme
         .pointer("/video/desc")
-        .or_else(|| lives.pointer("/video_text"))
+        .or_else(|| aweme.pointer("/video_text"))
         .and_then(Value::as_str)
         .filter(|s| !s.is_empty())
         .map(str::to_string)
         .unwrap_or_else(|| format!("{} 的直播", username));
-    let cover = lives
+    let cover = aweme
         .pointer("/video/cover/url_list/0")
-        .or_else(|| lives.pointer("/video/big_thumbs/url_list/0"))
-        .or_else(|| lives.pointer("/video/origin_cover/url_list/0"))
+        .or_else(|| aweme.pointer("/video/big_thumbs/url_list/0"))
+        .or_else(|| aweme.pointer("/video/origin_cover/url_list/0"))
         .and_then(Value::as_str)
         .map(str::to_string);
     Some(RoomInfo {
@@ -600,8 +612,25 @@ impl crate::adapter::PlatformAdapter for DouyinAdapter {
         )
     }
 
-    /// 热门直播间（webcast feed，游客可访问）
+    /// 热门直播间：webcast feed（页面环境，游客可用——独立客户端被风控降级）
     async fn hot_rooms(&self) -> anyhow::Result<Vec<RoomInfo>> {
+        // 页面环境优先；失败/无结果时回退旧游客 feed（可能被风控降级空数据）
+        if let Ok(items) = crate::reverse::webctx::live_recommend().await {
+            let rooms: Vec<RoomInfo> = items
+                .iter()
+                .filter_map(|item| {
+                    // data[i].data = webcast 房间对象；兼容平铺
+                    item.get("data")
+                        .and_then(room_info_from_room)
+                        .or_else(|| room_info_from_room(item))
+                })
+                .take(20)
+                .collect();
+            if !rooms.is_empty() {
+                return Ok(rooms);
+            }
+            log::info!("抖音页面环境热门无结果，回退游客 feed");
+        }
         let items = self.fetch_feed(20).await?;
         Ok(items
             .iter()
@@ -609,6 +638,16 @@ impl crate::adapter::PlatformAdapter for DouyinAdapter {
             .filter_map(room_info_from_room)
             .take(20)
             .collect())
+    }
+
+    /// 平台关注的主播（follow feed，页面环境需登录态）：只收直播中的卡片
+    async fn follows(&self) -> anyhow::Result<Vec<RoomInfo>> {
+        let items = crate::reverse::webctx::follow_feed().await?;
+        let rooms: Vec<RoomInfo> = items.iter().filter_map(parse_follow_feed_item).collect();
+        if rooms.is_empty() {
+            anyhow::bail!("关注 feed 无直播中的主播（或登录态失效）");
+        }
+        Ok(rooms)
     }
 
     /// 抖音弹幕协议需要签名握手，暂未接入

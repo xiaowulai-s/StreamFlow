@@ -8,7 +8,7 @@ import { EmptyState } from '../components/EmptyState';
 import { CloseIcon } from '../components/icons';
 
 /** 支持关注列表导入的平台（B站/斗鱼/快手走 API，虎牙解析订阅页） */
-const IMPORT_PLATFORMS = new Set(['bilibili', 'douyu', 'huya', 'kuaishou']);
+const IMPORT_PLATFORMS = new Set(['bilibili', 'douyu', 'huya', 'kuaishou', 'douyin']);
 
 export function FavoritesPage() {
   const {

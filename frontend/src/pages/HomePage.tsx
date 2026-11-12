@@ -79,22 +79,39 @@ export function HomePage() {
 
   // 默认打开方式（6.2）：external 时卡片点击直接调系统浏览器，不进观看页
   const [openMode, setOpenMode] = useState<'internal' | 'external'>('internal');
+  // 按平台覆盖（6.5 扩展）：观看页"外部打开"时记忆该平台偏好
+  const [platformModes, setPlatformModes] = useState<Record<string, 'internal' | 'external'>>({});
   useEffect(() => {
     void getSetting('default_open_mode')
       .then((v) => {
         if (v === 'internal' || v === 'external') setOpenMode(v);
       })
       .catch(() => undefined);
+    // 读取各平台覆盖（存为 JSON：{douyin:"external",...}）
+    void getSetting('platform_open_modes')
+      .then((v) => {
+        if (v) {
+          try {
+            const obj = JSON.parse(v);
+            if (obj && typeof obj === 'object') setPlatformModes(obj);
+          } catch {
+            // 忽略损坏数据
+          }
+        }
+      })
+      .catch(() => undefined);
   }, []);
   const handleCardClick = useCallback(
     (room: Room) => {
-      if (openMode === 'external') {
+      // 平台覆盖优先，其次全局默认
+      const mode = platformModes[room.platform] ?? openMode;
+      if (mode === 'external') {
         void openExternal(platformRoomUrl(room.platform, room.id)).catch(() => undefined);
         return;
       }
       watch(room);
     },
-    [openMode, watch],
+    [openMode, platformModes, watch],
   );
 
   const filtered =
