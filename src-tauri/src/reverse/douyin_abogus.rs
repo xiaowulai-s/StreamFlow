@@ -284,3 +284,98 @@ mod tests {
         assert_eq!(a.len(), 3);
     }
 }
+
+#[tokio::test]
+#[ignore = "依赖真实网络与已登录 auth.json：验证登录态搜索接口"]
+async fn debug_abogus_search_logged() {
+    // 1. 读 auth.json 的抖音登录 cookie
+    let dir = std::env::var("LOCALAPPDATA").unwrap();
+    let path = std::path::Path::new(&dir)
+        .join("com.streamflow.app")
+        .join("auth.json");
+    let store: serde_json::Value =
+        serde_json::from_str(&std::fs::read_to_string(path).unwrap()).unwrap();
+    let cookie_login = store["platforms"]["douyin"]["cookie"]
+        .as_str()
+        .unwrap_or("")
+        .to_string();
+    if cookie_login.is_empty() {
+        eprintln!("auth.json 无抖音登录态");
+        return;
+    }
+    eprintln!("login cookie len: {}", cookie_login.len());
+
+    let client = reqwest::Client::builder()
+        .timeout(std::time::Duration::from_secs(12))
+        .build()
+        .unwrap();
+    let ua = USER_AGENT;
+
+    // 2. 游客 ttwid
+    let home = client
+        .get("https://live.douyin.com/")
+        .header("User-Agent", ua)
+        .send()
+        .await
+        .unwrap();
+    let ttwid: Vec<String> = home
+        .headers()
+        .get_all(reqwest::header::SET_COOKIE)
+        .iter()
+        .filter_map(|v| v.to_str().ok())
+        .map(|s| s.split(';').next().unwrap_or("").to_string())
+        .filter(|s| s.starts_with("ttwid="))
+        .collect();
+
+    // 3. 构造搜索请求（登录 cookie + ttwid + a_bogus）
+    let params = format!(
+        "device_platform=webapp&aid=6383&channel=channel_pc_web&search_channel=aweme_live&keyword={}\
+         &search_source=normal_search&query_correct_type=1&is_filter_search=0&from_group_id=&offset=0&count=10\
+         &pc_client_type=1&version_code=170400&version_name=17.4.0&cookie_enabled=true&screen_width=1920\
+         &screen_height=1080&browser_language=zh-CN&browser_platform=Win32&browser_name=Chrome\
+         &browser_version=130.0.0.0&browser_online=true&engine_name=Blink&engine_version=130.0.0.0\
+         &os_name=Windows&os_version=10&cpu_core_num=12&memory_info=8&platform=PC&downlink=10\
+         &effective_type=4g&round_trip_time=50&webid=7300000000000000000",
+        urlencoding::encode("和平精英")
+    );
+    let a_bogus = get_value(&params, "GET");
+    let cookie_header = format!(
+        "{}{}{}",
+        ttwid.first().map(|s| s.clone()).unwrap_or_default(),
+        if ttwid.is_empty() { "" } else { "; " },
+        cookie_login
+    );
+    let url = format!(
+        "https://www.douyin.com/aweme/v1/web/live/search/?{}&a_bogus={}",
+        params,
+        urlencoding::encode(&a_bogus)
+    );
+    let resp = client
+        .get(&url)
+        .header("User-Agent", ua)
+        .header("Referer", "https://www.douyin.com/search/%E5%92%8C%E5%B9%B3%E7%B2%BE%E8%8B%B1?type=live")
+        .header("Cookie", cookie_header)
+        .send()
+        .await
+        .unwrap();
+    let status = resp.status();
+    let body = resp.text().await.unwrap_or_default();
+    eprintln!("status: {}", status);
+    eprintln!("body head: {}", &body[..body.len().min(300)]);
+    if let Ok(j) = serde_json::from_str::<serde_json::Value>(&body) {
+        let list = j.pointer("/data/aweme_list").and_then(|v| v.as_array());
+        eprintln!(
+            "status_code: {:?}, aweme_list: {}",
+            j.pointer("/status_code").and_then(|v| v.as_i64()),
+            list.map(|a| a.len()).unwrap_or(0)
+        );
+        if let Some(arr) = list {
+            for item in arr.iter().take(2) {
+                eprintln!(
+                    "item keys: {:?}",
+                    item.as_object().map(|o| o.keys().cloned().collect::<Vec<_>>())
+                );
+            }
+        }
+    }
+}

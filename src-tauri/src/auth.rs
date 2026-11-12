@@ -286,6 +286,25 @@ pub async fn complete_login(
             (true, nickname)
         }
         "huya" => (true, None),
+        "douyin" => {
+            // 抖音登录态判定：sessionid / sessionid_ss 任一存在即视为已登录；
+            // USER_INFO cookie 含 url 编码的 JSON，可顺带提取昵称
+            let logged_in = pairs
+                .iter()
+                .any(|(k, _)| matches!(k.as_str(), "sessionid" | "sessionid_ss"));
+            let nickname = pairs
+                .iter()
+                .find(|(k, _)| k == "USER_INFO")
+                .and_then(|(_, v)| urlencoding::decode(v).ok())
+                .and_then(|s| serde_json::from_str::<serde_json::Value>(&s).ok())
+                .and_then(|j| {
+                    j.get("nickname")
+                        .or_else(|| j.pointer("/user/nickname"))
+                        .and_then(|n| n.as_str())
+                        .map(str::to_string)
+                });
+            (logged_in, nickname)
+        }
         "kuaishou" => {
             let logged_in = pairs.iter().any(|(k, _)| {
                 matches!(

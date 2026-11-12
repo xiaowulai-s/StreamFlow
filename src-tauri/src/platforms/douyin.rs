@@ -49,11 +49,6 @@ impl DouyinAdapter {
         self.cookies.read().unwrap().clone().filter(|c| !c.is_empty())
     }
 
-    /// 登录态注入（auth.rs 统一入口）
-    fn set_cookies(&self, cookie: Option<String>) {
-        *self.cookies.write().unwrap() = cookie.filter(|c| !c.is_empty());
-    }
-
     /// 访问直播首页拿游客 ttwid（搜索接口需要）
     async fn fetch_ttwid(&self) -> Option<String> {
         let resp = self
