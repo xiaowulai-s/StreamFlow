@@ -307,6 +307,12 @@ fn parse_view_count(room: &Value) -> u64 {
     room.pointer("/stats/total_user")
         .and_then(Value::as_u64)
         .or_else(|| room.get("user_count").and_then(Value::as_u64))
+        .or_else(|| {
+            // reflow 部分版本只有 user_count_str（如 "1.2万" / "8417"）
+            room.get("user_count_str")
+                .and_then(Value::as_str)
+                .and_then(parse_human_count)
+        })
         .unwrap_or(0)
 }
 
