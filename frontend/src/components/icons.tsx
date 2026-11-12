@@ -32,19 +32,50 @@ function Svg({ children, size = 18, className = '', strokeWidth = 1.8 }: IconPro
 /** Logo 图形复刻：渐变弧带 S + 白色播放三角 */
 export function LogoMark({ size = 36 }: { size?: number }) {
   return (
-    <svg width={size} height={size} viewBox="0 0 24 24" fill="none" aria-hidden="true">
-      <defs>
-        <linearGradient id="z-brand" x1="3" y1="4" x2="21" y2="20" gradientUnits="userSpaceOnUse">
-          <stop offset="0" stopColor="#ffffff" />
-          <stop offset="1" stopColor="#a1a1aa" />
-        </linearGradient>
-      </defs>
-      <rect x="1" y="1" width="22" height="22" rx="6" fill="#18181b" />
-      {/* Z 字：粗笔画三段，斜切端点 */}
-      <path d="M 6.3 5.4 L 17.6 5.4 L 16.2 8.0 L 6.3 8.0 Z" fill="url(#z-brand)" />
-      <path d="M 17.6 5.4 L 7.9 16.3 L 6.3 16.3 L 6.3 15.7 L 16.2 5.4 Z" fill="url(#z-brand)" />
-      <path d="M 6.3 15.7 L 17.7 15.7 L 17.7 18.4 L 7.6 18.4 Z" fill="url(#z-brand)" />
-    </svg>
+    <>
+      {/* 浅色主题：白底黑灰渐变 Z */}
+      <svg width={size} height={size} viewBox="0 0 24 24" fill="none" aria-hidden="true" className="block dark:hidden">
+        <defs>
+          <linearGradient id="zl-top" x1="5" y1="5" x2="19" y2="8" gradientUnits="userSpaceOnUse">
+            <stop offset="0" stopColor="#3f3f46" />
+            <stop offset="1" stopColor="#8a8a93" />
+          </linearGradient>
+          <linearGradient id="zl-mid" x1="17" y1="6" x2="7" y2="17" gradientUnits="userSpaceOnUse">
+            <stop offset="0" stopColor="#1c1c21" />
+            <stop offset="1" stopColor="#6b6b74" />
+          </linearGradient>
+          <linearGradient id="zl-bot" x1="6" y1="16" x2="18" y2="19" gradientUnits="userSpaceOnUse">
+            <stop offset="0" stopColor="#2a2a30" />
+            <stop offset="1" stopColor="#9a9aa3" />
+          </linearGradient>
+        </defs>
+        <rect x="1" y="1" width="22" height="22" rx="6" fill="#fafafa" />
+        <path d="M 5.6 5.2 L 17.8 5.2 L 18.6 7.4 L 7.4 8.2 L 5.6 8.0 Z" fill="url(#zl-top)" />
+        <path d="M 18.6 7.4 L 7.4 17.6 L 5.6 17.6 L 5.6 15.9 L 16.4 6.4 Z" fill="url(#zl-mid)" />
+        <path d="M 5.6 15.9 L 18.4 15.2 L 18.4 17.6 L 7.4 18.6 Z" fill="url(#zl-bot)" />
+      </svg>
+      {/* 深色主题：黑底银白渐变 Z */}
+      <svg width={size} height={size} viewBox="0 0 24 24" fill="none" aria-hidden="true" className="hidden dark:block">
+        <defs>
+          <linearGradient id="zd-top" x1="5" y1="5" x2="19" y2="8" gradientUnits="userSpaceOnUse">
+            <stop offset="0" stopColor="#f4f4f5" />
+            <stop offset="1" stopColor="#a1a1aa" />
+          </linearGradient>
+          <linearGradient id="zd-mid" x1="17" y1="6" x2="7" y2="17" gradientUnits="userSpaceOnUse">
+            <stop offset="0" stopColor="#fafafa" />
+            <stop offset="1" stopColor="#8a8a93" />
+          </linearGradient>
+          <linearGradient id="zd-bot" x1="6" y1="16" x2="18" y2="19" gradientUnits="userSpaceOnUse">
+            <stop offset="0" stopColor="#e4e4e7" />
+            <stop offset="1" stopColor="#b8b8bf" />
+          </linearGradient>
+        </defs>
+        <rect x="1" y="1" width="22" height="22" rx="6" fill="#0a0a0b" />
+        <path d="M 5.6 5.2 L 17.8 5.2 L 18.6 7.4 L 7.4 8.2 L 5.6 8.0 Z" fill="url(#zd-top)" />
+        <path d="M 18.6 7.4 L 7.4 17.6 L 5.6 17.6 L 5.6 15.9 L 16.4 6.4 Z" fill="url(#zd-mid)" />
+        <path d="M 5.6 15.9 L 18.4 15.2 L 18.4 17.6 L 7.4 18.6 Z" fill="url(#zd-bot)" />
+      </svg>
+    </>
   );
 }
 
