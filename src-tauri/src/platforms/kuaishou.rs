@@ -122,6 +122,7 @@ impl KuaishouAdapter {
                 .timeout(Duration::from_secs(12))
                 // 快手对 HTTP/2 请求存在 TLS 指纹级风控（2026-11 实测 curl/1.1 可通而 reqwest h2 被拒），锁定 1.1
                 .http1_only()
+                .use_rustls_tls()
                 .build()
                 .unwrap(),
             catalog: RwLock::new(None),

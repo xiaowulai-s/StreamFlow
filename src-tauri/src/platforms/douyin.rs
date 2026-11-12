@@ -38,6 +38,7 @@ impl DouyinAdapter {
         Self {
             client: Client::builder()
                 .timeout(Duration::from_secs(12))
+                .use_rustls_tls()
                 .build()
                 .unwrap(),
             cookies: Arc::new(RwLock::new(None)),
