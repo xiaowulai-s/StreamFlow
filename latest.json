@@ -4,7 +4,7 @@
   "platforms": {
     "windows-x86_64": {
       "signature": "dW50cnVzdGVkIGNvbW1lbnQ6IHNpZ25hdHVyZSBmcm9tIHRhdXJpIHNlY3JldCBrZXkKUlVSc0FtaGFnK2ErdFhjUEFVeWxGZFllVFBDbmV5eGtvVzlwdExYNzRMVHVYS0tnZUhQd0ZaYWlNRCtTalV0REVwMy94enRDbGJrT1lPQVZRVWVkUHk2UjA3NEFDMEhYMGdvPQp0cnVzdGVkIGNvbW1lbnQ6IHRpbWVzdGFtcDoxNzk0MzkyMDQ0CWZpbGU6U3RyZWFtRmxvd18wLjAuMV94NjRfZW4tVVMubXNpCXZlcnNpb246MC4wLjEKMHczRFJTbFVKR1VjT0ZEQjVMUllzMlcwdGpRb1JQaWJYd0w1bXA5QWhnNU1ickVWUGY5T2ZkWVk1aGhYVFhDc3Q1Tnhuck9pbFRRZ2tvTEdjeXdvQ0E9PQo=",
-      "url": "https://cdn.jsdelivr.net/gh/xiaowulai-s/StreamFlow@v0.0.1/dist/StreamFlow_0.0.1_x64_en-US.msi"
+      "url": "https://github.com/xiaowulai-s/StreamFlow/releases/download/v0.0.1/StreamFlow_0.0.1_x64_en-US.msi"
     }
   }
 }
