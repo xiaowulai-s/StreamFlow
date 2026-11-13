@@ -34,6 +34,7 @@ type PlayerHandle = { destroy: () => void };
 export function WatchPage() {
   const { watching, navigate, isFavorite, toggleFavorite } = useApp();
   const videoRef = useRef<HTMLVideoElement>(null);
+  const playerBoxRef = useRef<HTMLDivElement>(null);
   const [streamUrl, setStreamUrl] = useState<string | null>(null);
   const [qualities, setQualities] = useState<QualityOption[]>([]);
   const [activeQuality, setActiveQuality] = useState<string | null>(null);
@@ -228,13 +229,14 @@ export function WatchPage() {
     setMuted(video.muted);
   };
 
-  const goFullscreen = () => videoRef.current?.requestFullscreen?.().catch(() => undefined);
+  // 全屏用播放器容器（video+飘屏一起进全屏；原生 video 全屏不含兄弟 overlay）
+  const goFullscreen = () => playerBoxRef.current?.requestFullscreen?.().catch(() => undefined);
 
   return (
     <div className="flex h-full gap-4">
       {/* 左侧主播放器 */}
       <div className="flex min-w-0 flex-1 flex-col">
-        <div className="relative flex aspect-video w-full items-center justify-center rounded-card bg-stage ring-1 ring-black/20">
+        <div ref={playerBoxRef} className="relative flex aspect-video w-full items-center justify-center rounded-card bg-stage ring-1 ring-black/20">
           <video ref={videoRef} controls autoPlay className="h-full w-full rounded-card object-contain" />
           {/* 飘屏：视频画面顶部横向滚动弹幕层 */}
           <DanmakuOverlay platform={watching.platform} roomId={watching.id} config={overlayCfg} />
