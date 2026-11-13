@@ -357,26 +357,26 @@ export function WatchPage() {
             </button>
           ))}
           {tab === 'danmaku' && (
-            <div className="relative ml-auto">
-              <button
-                onClick={() => setOverlayPanel((v) => !v)}
-                title="飘屏设置"
-                className={`rounded px-2 py-1 text-xs ring-1 transition-colors ${
-                  overlayCfg.enabled
-                    ? 'text-stream ring-stream/40 hover:bg-black/5'
-                    : 'text-slate ring-line hover:text-ink'
-                }`}
-              >
-                飘屏{overlayCfg.enabled ? '·开' : '·关'}
-              </button>
-              {overlayPanel && (
-                <div className="absolute right-0 top-full z-20 mt-1">
-                  <OverlaySettings config={overlayCfg} onChange={handleOverlayCfg} />
-                </div>
-              )}
-            </div>
+            <button
+              onClick={() => setOverlayPanel((v) => !v)}
+              title="飘屏设置"
+              className={`ml-auto rounded px-2 py-1 text-xs ring-1 transition-colors ${
+                overlayCfg.enabled
+                  ? 'text-stream ring-stream/40 hover:bg-black/5'
+                  : 'text-slate ring-line hover:text-ink'
+              }`}
+            >
+              飘屏{overlayCfg.enabled ? '·开' : '·关'}
+            </button>
           )}
         </div>
+
+        {/* 飘屏设置：内联展开（不遮挡下方列表） */}
+        {tab === 'danmaku' && overlayPanel && (
+          <div className="shrink-0 border-b border-line px-3 py-2">
+            <OverlaySettings config={overlayCfg} onChange={handleOverlayCfg} />
+          </div>
+        )}
 
         <div className="min-h-0 flex-1">
           {tab === 'danmaku' ? (

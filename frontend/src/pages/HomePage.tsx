@@ -31,11 +31,17 @@ export function HomePage() {
   const [sort, setSort] = useState<SortMode>('hot');
   const lastSearch = useRef('');
 
+  // 搜索范围（6.x 用户需求）：all=全站，或只搜选定平台；变化时自动重搜当前关键词
+  const [searchScope, setSearchScope] = useState<'all' | Platform>('all');
+
   const doSearch = useCallback(async (kw: string) => {
     setSearchLoading(true);
     setSearchError(null);
-    // 仅搜索已启用的平台（6.1 平台管理）
-    const targets = SEARCH_PLATFORMS.filter((p) => !disabledPlatforms.has(p));
+    // 范围：指定平台 or 已启用平台（6.1 平台管理）
+    const enabled = SEARCH_PLATFORMS.filter((p) => !disabledPlatforms.has(p));
+    const targets = (searchScope === 'all' ? enabled : [searchScope]).filter((p) =>
+      enabled.includes(p),
+    );
     const settled = await Promise.allSettled(
       (targets.length > 0 ? targets : SEARCH_PLATFORMS).map((p) => searchRooms(p, kw))
     );
@@ -48,14 +54,14 @@ export function HomePage() {
         errors.push(String(r.reason));
       }
     }
-    if (rooms.length === 0 && errors.length === SEARCH_PLATFORMS.length) {
+    if (rooms.length === 0 && errors.length === targets.length) {
       setSearchError(errors[0] ?? '搜索失败');
       setResults(null);
     } else {
       setResults(rooms);
     }
     setSearchLoading(false);
-  }, [disabledPlatforms]);
+  }, [disabledPlatforms, searchScope]);
 
   // 关键词变化 → 执行搜索；清空 → 回到浏览态
   useEffect(() => {
@@ -135,6 +141,21 @@ export function HomePage() {
               跨平台搜索虎牙 / 斗鱼 / B站 / 抖音 / 快手；修改顶部关键词后回车可重新搜索
             </p>
           </div>
+          <label className="flex shrink-0 items-center gap-2 text-xs text-slate">
+            搜索范围
+            <select
+              value={searchScope}
+              onChange={(e) => setSearchScope(e.target.value as 'all' | Platform)}
+              className="rounded-lg border border-line bg-surface px-2 py-1.5 text-xs text-ink"
+            >
+              <option value="all">全站</option>
+              {SEARCH_PLATFORMS.filter((p) => !disabledPlatforms.has(p)).map((p) => (
+                <option key={p} value={p}>
+                  {PLATFORM_LABELS[p]}
+                </option>
+              ))}
+            </select>
+          </label>
           <button
             onClick={() => setGlobalKeyword('')}
             className="shrink-0 rounded-lg border border-line px-3 py-1.5 text-xs text-slate transition-colors hover:border-stream hover:text-stream"

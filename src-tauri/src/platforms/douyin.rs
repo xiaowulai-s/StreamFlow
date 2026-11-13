@@ -704,9 +704,28 @@ impl crate::adapter::PlatformAdapter for DouyinAdapter {
                 }
             }
         }
-        // 兜底：关注内容混合 feed（关注主播在播时会插入直播卡片）
-        let items = crate::reverse::webctx::follow_feed().await?;
-        let rooms: Vec<RoomInfo> = items.iter().filter_map(parse_follow_feed_item).collect();
+        // 兜底：关注内容混合 feed——cursor 翻页拉满（最多 5 页/100 条），收集全部直播卡
+        let mut rooms: Vec<RoomInfo> = Vec::new();
+        let mut cursor: u64 = 0;
+        for _page in 0..5 {
+            let (items, next) = match crate::reverse::webctx::follow_feed(cursor).await {
+                Ok(v) => v,
+                Err(e) => {
+                    if rooms.is_empty() {
+                        anyhow::bail!("关注 feed 拉取失败: {}", e);
+                    }
+                    break;
+                }
+            };
+            rooms.extend(items.iter().filter_map(parse_follow_feed_item));
+            if next == 0 || next == cursor || items.is_empty() {
+                break;
+            }
+            cursor = next;
+        }
+        // 按房间号去重
+        let mut seen = std::collections::HashSet::new();
+        rooms.retain(|r| seen.insert(r.id.clone()));
         if rooms.is_empty() {
             anyhow::bail!("关注的主播当前没有直播中的（或登录态失效）");
         }

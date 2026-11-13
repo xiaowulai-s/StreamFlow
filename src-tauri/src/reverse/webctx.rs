@@ -311,40 +311,44 @@ pub async fn live_search(keyword: &str) -> anyhow::Result<Vec<serde_json::Value>
         .unwrap_or_default())
 }
 
-/// 关注 feed（页面环境，需登录态）：返回 aweme 对象数组
-pub async fn follow_feed() -> anyhow::Result<Vec<serde_json::Value>> {
-    let api_url = "https://www.douyin.com/aweme/v1/web/follow/feed/?aid=6383&count=20&cursor=0";
-    let body = fetch_page(api_url).await?;
+/// 关注 feed（页面环境，需登录态）：返回 aweme 对象数组；cursor 分页
+pub async fn follow_feed(cursor: u64) -> anyhow::Result<(Vec<serde_json::Value>, u64)> {
+    let api_url = format!(
+        "https://www.douyin.com/aweme/v1/web/follow/feed/?aid=6383&count=20&cursor={}",
+        cursor
+    );
+    let body = fetch_page(&api_url).await?;
     let json = parse_api_response(&body, "follow/feed")?;
+    let next = json.get("cursor").and_then(|v| v.as_u64()).unwrap_or(0);
     let list = json
         .pointer("/data")
         .and_then(|v| v.as_array())
         .cloned()
         .unwrap_or_default();
-    // 诊断：关注 feed 项结构（aweme_type 分布 + 包装形态），定位"关注导入 0 条"
-    let types: Vec<String> = list
+    // 诊断：关注 feed 项结构（anchor 直播卡的 aweme_id/group_id）
+    let anchors: Vec<String> = list
         .iter()
-        .map(|item| {
-            let aweme = item.get("aweme");
-            match aweme {
-                Some(a) => {
-                    // 有 anchor 字段的项=直播引流卡，看 aweme_id/group_id 是否即房间号
-                    match a.get("anchor") {
-                        Some(_) => format!(
-                            "ANCHOR aweme_id={:?} group_id={:?} author={:?}",
-                            a.get("aweme_id").map(|v| v.to_string()),
-                            a.get("group_id").map(|v| v.to_string()),
-                            a.pointer("/author/nickname").map(|v| v.to_string()),
-                        ),
-                        None => format!("type={}", a.get("aweme_type").map(|v| v.to_string()).unwrap_or("?".into())),
-                    }
-                }
-                None => "no-aweme".into(),
-            }
+        .filter_map(|item| item.pointer("/aweme/anchor"))
+        .map(|anchor| {
+            let aweme_parent = list
+                .iter()
+                .find(|i| i.pointer("/aweme/anchor") == Some(anchor))
+                .and_then(|i| i.get("aweme"));
+            format!(
+                "aweme_id={:?} author={:?}",
+                aweme_parent
+                    .and_then(|a| a.get("aweme_id"))
+                    .map(|v| v.to_string()),
+                aweme_parent
+                    .and_then(|a| a.pointer("/author/nickname"))
+                    .map(|v| v.to_string()),
+            )
         })
         .collect();
-    log::info!("[webctx] follow/feed {} 项: {:?}", list.len(), types);
-    Ok(list)
+    if !anchors.is_empty() {
+        log::info!("[webctx] follow/feed 直播卡: {:?}", anchors);
+    }
+    Ok((list, next))
 }
 
 /// 直播推荐 feed（页面环境，游客可用）：返回房间对象数组

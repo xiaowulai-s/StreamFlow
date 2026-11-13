@@ -119,21 +119,24 @@ export function DanmakuOverlay({
           if (!cfg.enabled) return;
           // 密度上限：超限丢弃新消息（防遮挡）
           if (countRef.current >= cfg.maxCount) return;
-          // 行分配：挑最空闲行（预计离场时间最早）
+          // 行分配：只进"前一条尾部已离开右边缘"的空闲行；无空闲行则丢弃（绝不重叠）。
+          // 空闲判定：该行上一条进入后已飞行 speed×0.55（尾部恰好离开右缘，后条紧挨前条）。
           const rows = rowCountRef.current;
-          let bestRow = 0;
-          for (let i = 1; i < rows; i++) {
-            if ((rowNextFreeRef.current[i] ?? 0) < (rowNextFreeRef.current[bestRow] ?? 0)) {
-              bestRow = i;
+          const now = Date.now();
+          let targetRow = -1;
+          for (let i = 0; i < rows; i++) {
+            if ((rowNextFreeRef.current[i] ?? 0) <= now) {
+              targetRow = i;
+              break;
             }
           }
-          const now = Date.now();
-          rowNextFreeRef.current[bestRow] = now + cfg.speedSec * 1000 * 0.9;
+          if (targetRow < 0) return;
+          rowNextFreeRef.current[targetRow] = now + cfg.speedSec * 1000 * 0.55;
           const key = ++keyRef.current;
           countRef.current += 1;
           setItems((prev) => [
             ...prev.slice(-59),
-            { key, username: msg.username, text: msg.text, row: bestRow, color: msg.color },
+            { key, username: msg.username, text: msg.text, row: targetRow, color: msg.color },
           ]);
         }),
       );
@@ -167,6 +170,7 @@ export function DanmakuOverlay({
           className="absolute whitespace-nowrap rounded bg-black/30 px-2 will-change-transform"
           style={{
             top: it.row * rowH,
+            left: '100%',
             fontSize: config.fontSize,
             lineHeight: `${rowH}px`,
             color: it.color ?? '#fff',
