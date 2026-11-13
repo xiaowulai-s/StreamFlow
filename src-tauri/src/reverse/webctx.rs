@@ -197,12 +197,26 @@ pub async fn fetch_page(url: &str) -> anyhow::Result<String> {
         *g = None;
     }
 
-    // 注入 fetch（credentials include，结果以 no-cors POST 回 listener——绕过页面 CORS/preflight）
+    // 注入 fetch：先取页面环境签名（byted_acrawler.sign → a_bogus）+ verifyFp 参数，
+    // 再 credentials include fetch，结果以 no-cors POST 回 listener（绕过页面 CORS/preflight）
     let js = format!(
         r#"(async () => {{
             const send = (body) => fetch("{cb}", {{ method: "POST", mode: "no-cors", body }});
             try {{
-                const r = await fetch("{url}", {{ credentials: "include" }});
+                let u = "{url}";
+                try {{
+                    const fp = (document.cookie.match(/s_v_web_id=([^;]+)/) || [])[1];
+                    if (fp && u.indexOf("verifyFp=") < 0) u += "&verifyFp=" + encodeURIComponent(fp) + "&fp=" + encodeURIComponent(fp);
+                }} catch (_) {{}}
+                try {{
+                    const ac = window.byted_acrawler;
+                    if (ac && typeof ac.sign === "function") {{
+                        const s = ac.sign({{ url: u }});
+                        if (s && s.a_bogus) u += "&a_bogus=" + encodeURIComponent(s.a_bogus);
+                        else if (s && s["X-Bogus"]) u += "&X-Bogus=" + encodeURIComponent(s["X-Bogus"]);
+                    }}
+                }} catch (_) {{}}
+                const r = await fetch(u, {{ credentials: "include" }});
                 const t = await r.text();
                 await send(t);
             }} catch (e) {{
@@ -238,6 +252,43 @@ fn parse_api_response(body: &str, api: &str) -> anyhow::Result<serde_json::Value
     Ok(json)
 }
 
+/// 收集页面环境信息（诊断用）：签名函数存在性 + s_v_web_id + localStorage 关键项
+pub async fn diag_env() -> anyhow::Result<()> {
+    let cb = format!("http://127.0.0.1:{}/result", port());
+    // 复用结果槽收诊断（避开正常请求的竞态：先清空）
+    {
+        let mut g = slot().body.lock().unwrap();
+        *g = None;
+    }
+    let win_app = APP.get().ok_or_else(|| anyhow::anyhow!("webctx 未初始化"))?;
+    let win = win_app
+        .get_webview_window("login-douyin")
+        .ok_or_else(|| anyhow::anyhow!("页面窗口不存在"))?;
+    let js = format!(
+        r#"(async () => {{
+            const send = (body) => fetch("{cb}", {{ method: "POST", mode: "no-cors", body }});
+            try {{
+                const cookie = document.cookie;
+                const s_v_web_id = (cookie.match(/s_v_web_id=([^;]+)/) || [])[1] || "none";
+                const lsKeys = Object.keys(localStorage).slice(0, 40).join(",");
+                const webid = localStorage.getItem("webid") || localStorage.getItem("WEBID") || "none";
+                const uifid = localStorage.getItem("uifid") || "none";
+                const byted = typeof window.bytedacrawler !== "undefined" ? "has-bytedacrawler" : "no-bytedacrawler";
+                const byted2 = typeof window.byted_acrawler !== "undefined" ? "+byted_acrawler" : "";
+                await send("DIAG s_v_web_id=" + s_v_web_id + " webid=" + webid + " uifid=" + uifid + " " + byted + byted2 + " ls=[" + lsKeys.slice(0, 200) + "]");
+            }} catch (e) {{
+                try {{ await send("DIAG-ERR " + e.message); }} catch (_) {{}}
+            }}
+        }})()"#,
+        cb = cb,
+    );
+    win.eval(&js)?;
+    if let Some(body) = wait_result(std::time::Duration::from_secs(8)) {
+        log::info!("{}", body.chars().take(400).collect::<String>());
+    }
+    Ok(())
+}
+
 /// 搜索（页面环境）
 pub async fn live_search(keyword: &str) -> anyhow::Result<Vec<serde_json::Value>> {
     let params = format!(
@@ -265,11 +316,35 @@ pub async fn follow_feed() -> anyhow::Result<Vec<serde_json::Value>> {
     let api_url = "https://www.douyin.com/aweme/v1/web/follow/feed/?aid=6383&count=20&cursor=0";
     let body = fetch_page(api_url).await?;
     let json = parse_api_response(&body, "follow/feed")?;
-    Ok(json
+    let list = json
         .pointer("/data")
         .and_then(|v| v.as_array())
         .cloned()
-        .unwrap_or_default())
+        .unwrap_or_default();
+    // 诊断：关注 feed 项结构（aweme_type 分布 + 包装形态），定位"关注导入 0 条"
+    let types: Vec<String> = list
+        .iter()
+        .map(|item| {
+            let aweme = item.get("aweme");
+            match aweme {
+                Some(a) => {
+                    // 有 anchor 字段的项=直播引流卡，看 aweme_id/group_id 是否即房间号
+                    match a.get("anchor") {
+                        Some(_) => format!(
+                            "ANCHOR aweme_id={:?} group_id={:?} author={:?}",
+                            a.get("aweme_id").map(|v| v.to_string()),
+                            a.get("group_id").map(|v| v.to_string()),
+                            a.pointer("/author/nickname").map(|v| v.to_string()),
+                        ),
+                        None => format!("type={}", a.get("aweme_type").map(|v| v.to_string()).unwrap_or("?".into())),
+                    }
+                }
+                None => "no-aweme".into(),
+            }
+        })
+        .collect();
+    log::info!("[webctx] follow/feed {} 项: {:?}", list.len(), types);
+    Ok(list)
 }
 
 /// 直播推荐 feed（页面环境，游客可用）：返回房间对象数组

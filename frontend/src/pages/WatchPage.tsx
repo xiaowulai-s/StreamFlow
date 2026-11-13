@@ -1,6 +1,6 @@
 // 直播观看：左侧主播放器 + 右侧信息栏 + 底部操作条（产品方案 5.5）
 // 播放能力路由：m3u8 → hls.js，flv → mpegts.js；获取失败降级外部打开
-import { useEffect, useRef, useState, type ReactNode } from 'react';
+import { useCallback, useEffect, useRef, useState, type ReactNode } from 'react';
 import Hls from 'hls.js';
 import mpegts from 'mpegts.js';
 import { useApp } from '../context';
@@ -9,6 +9,13 @@ import { platformRoomUrl, type QualityOption, type Room } from '../lib/types';
 import { PlatformBadge } from '../components/PlatformBadge';
 import { EmptyState } from '../components/EmptyState';
 import { DanmakuPanel } from '../components/DanmakuPanel';
+import {
+  DanmakuOverlay,
+  OverlaySettings,
+  loadOverlayConfig,
+  DEFAULT_CONFIG,
+  type OverlayConfig,
+} from '../components/DanmakuOverlay';
 import {
   AlertIcon,
   MuteIcon,
@@ -37,6 +44,15 @@ export function WatchPage() {
   const [copied, setCopied] = useState(false);
   const [externalOpened, setExternalOpened] = useState(false);
   const [tab, setTab] = useState<'danmaku' | 'info'>('danmaku');
+  // 飘屏（横向滚动弹幕）配置：加载一次，弹幕区工具条可调
+  const [overlayCfg, setOverlayCfg] = useState<OverlayConfig>(DEFAULT_CONFIG);
+  const [overlayPanel, setOverlayPanel] = useState(false);
+  useEffect(() => {
+    void loadOverlayConfig().then(setOverlayCfg).catch(() => undefined);
+  }, []);
+  const handleOverlayCfg = useCallback((cfg: OverlayConfig) => {
+    setOverlayCfg(cfg);
+  }, []);
 
   // 播放设置（6.2）：音量记忆 + 默认静音，进房时恢复
   useEffect(() => {
@@ -229,6 +245,8 @@ export function WatchPage() {
       <div className="flex min-w-0 flex-1 flex-col">
         <div className="relative flex aspect-video w-full items-center justify-center rounded-card bg-stage ring-1 ring-black/20">
           <video ref={videoRef} controls autoPlay className="h-full w-full rounded-card object-contain" />
+          {/* 飘屏：视频画面顶部横向滚动弹幕层 */}
+          <DanmakuOverlay platform={watching.platform} roomId={watching.id} config={overlayCfg} />
           {loading && (
             <div className="absolute inset-0 flex flex-col items-center justify-center gap-2 rounded-card bg-stage/80 text-sm text-white">
               <span className="h-6 w-6 animate-spin rounded-full border-2 border-white/30 border-t-white" />
@@ -333,7 +351,7 @@ export function WatchPage() {
         </div>
 
         {/* 标签：弹幕 / 房间信息 */}
-        <div className="flex shrink-0 gap-1 border-b border-line px-3">
+        <div className="flex shrink-0 items-center gap-1 border-b border-line px-3">
           {(['danmaku', 'info'] as const).map((key) => (
             <button
               key={key}
@@ -347,6 +365,26 @@ export function WatchPage() {
               {key === 'danmaku' ? '弹幕' : '房间信息'}
             </button>
           ))}
+          {tab === 'danmaku' && (
+            <div className="relative ml-auto">
+              <button
+                onClick={() => setOverlayPanel((v) => !v)}
+                title="飘屏设置"
+                className={`rounded px-2 py-1 text-xs ring-1 transition-colors ${
+                  overlayCfg.enabled
+                    ? 'text-stream ring-stream/40 hover:bg-black/5'
+                    : 'text-slate ring-line hover:text-ink'
+                }`}
+              >
+                飘屏{overlayCfg.enabled ? '·开' : '·关'}
+              </button>
+              {overlayPanel && (
+                <div className="absolute right-0 top-full z-20 mt-1">
+                  <OverlaySettings config={overlayCfg} onChange={handleOverlayCfg} />
+                </div>
+              )}
+            </div>
+          )}
         </div>
 
         <div className="min-h-0 flex-1">

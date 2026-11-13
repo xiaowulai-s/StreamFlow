@@ -351,11 +351,30 @@ fn parse_follow_feed_item(item: &Value) -> Option<RoomInfo> {
     parse_aweme_live(item.get("aweme")?)
 }
 
+/// 通用：从候选接口返回的项数组中解析直播房间（webcast 房间对象 / aweme 直播卡片，兼容多种包装）
+fn items_to_rooms(items: &[Value]) -> Vec<RoomInfo> {
+    items
+        .iter()
+        .filter_map(|item| {
+            // 形态 A：{data: <webcast 房间>}（webcast/feed）
+            item.get("data")
+                .and_then(room_info_from_room)
+                // 形态 B：{aweme: <直播 aweme>}（aweme feed）
+                .or_else(|| parse_aweme_live(item.get("aweme")?))
+                // 形态 C：{lives: <直播 aweme>}（live/search）
+                .or_else(|| parse_aweme_live(item.get("lives")?))
+                // 形态 D：平铺房间对象
+                .or_else(|| room_info_from_room(item))
+        })
+        .collect()
+}
+
 /// 解析直播 aweme 对象（搜索/关注 feed 共用核心）。
-/// 只收直播卡片（aweme_type=101），普通视频丢弃。
+/// 直播卡片两种形态：aweme_type=101（搜索），或带 anchor 字段（关注 feed 的直播引流卡，type=0）。
 fn parse_aweme_live(aweme: &Value) -> Option<RoomInfo> {
-    // 只收直播卡片（101），普通视频搜索结果丢弃
-    if aweme.get("aweme_type").and_then(Value::as_i64) != Some(101) {
+    let is_live_card = aweme.get("aweme_type").and_then(Value::as_i64) == Some(101)
+        || aweme.get("anchor").is_some();
+    if !is_live_card {
         return None;
     }
     // 房间号：author.web_rid（最稳，直达 reflow；实测为数字型）优先，group_id 兜底
@@ -428,7 +447,9 @@ fn room_info_from_room(room: &Value) -> Option<RoomInfo> {
         .pointer("/cover/url_list/0")
         .and_then(Value::as_str)
         .map(str::to_string);
-    let live = json_i64(room.get("status").unwrap_or(&Value::Null)) == Some(2);
+    // webcast 房间对象：status=0 为直播中（与 aweme 的 2 相反）
+    let live = json_i64(room.get("status").unwrap_or(&Value::Null)) == Some(2)
+        || json_i64(room.get("status").unwrap_or(&Value::Null)) == Some(0);
     let started_at = room
         .get("start_time")
         .and_then(Value::as_i64)
@@ -640,12 +661,54 @@ impl crate::adapter::PlatformAdapter for DouyinAdapter {
             .collect())
     }
 
-    /// 平台关注的主播（follow feed，页面环境需登录态）：只收直播中的卡片
+    /// 平台关注的主播（页面环境需登录态）：follow_top 为关注页"直播中"列表（首选），
+    /// 其余候选兜底，只收直播中的卡片
     async fn follows(&self) -> anyhow::Result<Vec<RoomInfo>> {
+        // 候选 0（首选）：关注页顶部"直播中"列表（webcast 房间对象，含 user_count）
+        let follow_top = "https://www.douyin.com/webcast/feed/follow_top/?device_platform=webapp&aid=6383&channel=channel_pc_web&pc_client_type=1&version_code=170400&version_name=17.4.0&cookie_enabled=true&screen_width=1920&screen_height=1080&browser_language=zh-CN&browser_platform=Win32&browser_name=Chrome&browser_version=130.0.0.0&browser_online=true&engine_name=Blink&engine_version=130.0.0.0&os_name=Windows&os_version=10&cpu_core_num=12&memory_info=8&platform=PC&downlink=10&effective_type=4g&round_trip_time=50";
+        if let Ok(body) = crate::reverse::webctx::fetch_page(follow_top).await {
+            if let Ok(json) = serde_json::from_str::<Value>(&body) {
+                let arr = json
+                    .pointer("/data")
+                    .and_then(Value::as_array)
+                    .cloned()
+                    .unwrap_or_default();
+                let rooms: Vec<RoomInfo> = items_to_rooms(&arr);
+                log::info!("[webctx] follow_top 返回 {} 项，解析出 {} 个在播房间", arr.len(), rooms.len());
+                // 空列表=关注的主播都没在播（正常），有数据则直接返回
+                if json.pointer("/data").and_then(Value::as_array).is_some() && !arr.is_empty() {
+                    return Ok(rooms);
+                }
+                if arr.is_empty() {
+                    // 空结果疑缺签名参数（a_bogus/webid/uifid），诊断页面环境
+                    let _ = crate::reverse::webctx::diag_env().await;
+                }
+            }
+        }
+        // 其余候选：pull_type 变体与混合 feed 兜底
+        let candidates = [
+            "https://www.douyin.com/aweme/v1/web/follow/feed/?aid=6383&count=20&cursor=0&feed_type=live",
+        ];
+        for url in candidates.iter() {
+            if let Ok(body) = crate::reverse::webctx::fetch_page(url).await {
+                if let Ok(json) = serde_json::from_str::<Value>(&body) {
+                    let arr = json
+                        .pointer("/data")
+                        .and_then(Value::as_array)
+                        .cloned()
+                        .unwrap_or_default();
+                    let rooms: Vec<RoomInfo> = items_to_rooms(&arr);
+                    if !rooms.is_empty() {
+                        return Ok(rooms);
+                    }
+                }
+            }
+        }
+        // 兜底：关注内容混合 feed（关注主播在播时会插入直播卡片）
         let items = crate::reverse::webctx::follow_feed().await?;
         let rooms: Vec<RoomInfo> = items.iter().filter_map(parse_follow_feed_item).collect();
         if rooms.is_empty() {
-            anyhow::bail!("关注 feed 无直播中的主播（或登录态失效）");
+            anyhow::bail!("关注的主播当前没有直播中的（或登录态失效）");
         }
         Ok(rooms)
     }
