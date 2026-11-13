@@ -215,16 +215,7 @@ export function WatchPage() {
       await openExternal(externalUrl);
       setExternalOpened(true);
       setTimeout(() => setExternalOpened(false), 2000);
-      // 按平台记忆：该平台记住"外部打开"偏好，首页卡片点击将直接外部打开
-      if (watching) {
-        void getSetting('platform_open_modes')
-          .then((v) => {
-            const obj = v ? (JSON.parse(v) as Record<string, string>) : {};
-            obj[watching.platform] = 'external';
-            return setSetting('platform_open_modes', JSON.stringify(obj));
-          })
-          .catch(() => undefined);
-      }
+      // 注：不自动写入按平台记忆（曾导致所有卡片点击跳浏览器）；按平台偏好如需配置走设置页
     } catch {
       // 打开失败时静默（外部链接已可复制）
     }
