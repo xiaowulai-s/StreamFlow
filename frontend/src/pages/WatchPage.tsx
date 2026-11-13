@@ -237,7 +237,7 @@ export function WatchPage() {
       {/* 左侧主播放器 */}
       <div className="flex min-w-0 flex-1 flex-col">
         <div ref={playerBoxRef} className="relative flex aspect-video w-full items-center justify-center rounded-card bg-stage ring-1 ring-black/20">
-          <video ref={videoRef} controls autoPlay className="h-full w-full rounded-card object-contain" />
+          <video ref={videoRef} controls autoPlay controlsList="nofullscreen" className="h-full w-full rounded-card object-contain" />
           {/* 飘屏：视频画面顶部横向滚动弹幕层 */}
           <DanmakuOverlay platform={watching.platform} roomId={watching.id} config={overlayCfg} />
           {loading && (
