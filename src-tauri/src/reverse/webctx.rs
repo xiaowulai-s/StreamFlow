@@ -216,6 +216,17 @@ pub async fn fetch_page(url: &str) -> anyhow::Result<String> {
                         else if (s && s["X-Bogus"]) u += "&X-Bogus=" + encodeURIComponent(s["X-Bogus"]);
                     }}
                 }} catch (_) {{}}
+                try {{
+                    const ac = window.byted_acrawler;
+                    if (ac && typeof ac.frontierSign === "function") {{
+                        const s = ac.frontierSign({{ url: u }});
+                        if (s) {{
+                            for (const k of ["X-Bogus", "a_bogus", "_signature"]) {{
+                                if (s[k]) u += "&" + k + "=" + encodeURIComponent(s[k]);
+                            }}
+                        }}
+                    }}
+                }} catch (_) {{}}
                 const r = await fetch(u, {{ credentials: "include" }});
                 const t = await r.text();
                 await send(t);
@@ -275,7 +286,26 @@ pub async fn diag_env() -> anyhow::Result<()> {
                 const uifid = localStorage.getItem("uifid") || "none";
                 const byted = typeof window.bytedacrawler !== "undefined" ? "has-bytedacrawler" : "no-bytedacrawler";
                 const byted2 = typeof window.byted_acrawler !== "undefined" ? "+byted_acrawler" : "";
-                await send("DIAG s_v_web_id=" + s_v_web_id + " webid=" + webid + " uifid=" + uifid + " " + byted + byted2 + " ls=[" + lsKeys.slice(0, 200) + "]");
+                // 签名 API 探测：byted_acrawler 的方法列表 + 各候选方法输出
+                let api = "no-ac";
+                try {{
+                    const ac = window.byted_acrawler || window.bytedacrawler;
+                    if (ac) {{
+                        const keys = Object.keys(ac).join(",");
+                        const proto = Object.getOwnPropertyNames(Object.getPrototypeOf(ac) || {{}}).join(",");
+                        const testUrl = "https://www.douyin.com/webcast/feed/follow_top/?aid=6383";
+                        let signOut = "no-sign";
+                        try {{
+                            if (typeof ac.sign === "function") signOut = "sign=" + JSON.stringify(ac.sign({{ url: testUrl }})).slice(0, 120);
+                        }} catch (e) {{ signOut = "sign-err " + e.message.slice(0, 40); }}
+                        let frontier = "no-frontier";
+                        try {{
+                            if (typeof ac.frontierSign === "function") frontier = "frontier=" + JSON.stringify(ac.frontierSign({{ url: testUrl }})).slice(0, 120);
+                        }} catch (e) {{ frontier = "frontier-err"; }}
+                        api = "keys=[" + keys + "] proto=[" + proto + "] " + signOut + " " + frontier;
+                    }}
+                }} catch (e) {{ api = "api-err " + e.message.slice(0, 40); }}
+                await send("DIAG s_v_web_id=" + s_v_web_id + " " + byted + byted2 + " " + api + " ls=[" + lsKeys.slice(0, 150) + "]");
             }} catch (e) {{
                 try {{ await send("DIAG-ERR " + e.message); }} catch (_) {{}}
             }}

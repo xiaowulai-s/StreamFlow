@@ -679,10 +679,6 @@ impl crate::adapter::PlatformAdapter for DouyinAdapter {
                 if json.pointer("/data").and_then(Value::as_array).is_some() && !arr.is_empty() {
                     return Ok(rooms);
                 }
-                if arr.is_empty() {
-                    // 空结果疑缺签名参数（a_bogus/webid/uifid），诊断页面环境
-                    let _ = crate::reverse::webctx::diag_env().await;
-                }
             }
         }
         // 其余候选：pull_type 变体与混合 feed 兜底
