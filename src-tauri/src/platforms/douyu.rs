@@ -201,22 +201,27 @@ impl DouyuAdapter {
             "{}\n{}\nvar __r = ub98484234(\"{}\",\"{}\",\"{}\");\nif (typeof WScript !== \"undefined\") {{ WScript.Echo(__r); }} else {{ console.log(__r); }}",
             crypto_js, sign_func, room_id, uuid, ts
         );
-        let script_path = std::env::temp_dir().join("streamflow_douyu_sign.js");
-        std::fs::write(&script_path, &script)?;
-
-        // node 优先，cscript 兜底
-        let output = {
+        // uuid 文件名：并发签名各写各的临时文件，避免互踩
+        let script_path = std::env::temp_dir().join(format!("streamflow_dy_sign_{}.js", uuid));
+        // 同步 IO + 子进程移入 spawn_blocking，不阻塞 tokio worker
+        let script_path_clone = script_path.clone();
+        let output = tokio::task::spawn_blocking(move || -> std::io::Result<_> {
+            std::fs::write(&script_path_clone, &script)?;
+            // node 优先，cscript 兜底
             let node = std::process::Command::new("node")
-                .arg(&script_path)
+                .arg(&script_path_clone)
                 .output();
             match node {
-                Ok(out) if out.status.success() && !out.stdout.is_empty() => out,
+                Ok(out) if out.status.success() && !out.stdout.is_empty() => Ok(out),
                 _ => std::process::Command::new("cscript")
                     .arg("//nologo")
-                    .arg(&script_path)
-                    .output()?,
+                    .arg(&script_path_clone)
+                    .output(),
             }
-        };
+        })
+        .await
+        .map_err(|e| anyhow::anyhow!("签名任务失败: {}", e))??;
+        let _ = std::fs::remove_file(&script_path); // 用完即删（失败不影响结果）
         if !output.status.success() {
             anyhow::bail!("JS 签名引擎执行失败（需要 node 或系统 cscript）");
         }

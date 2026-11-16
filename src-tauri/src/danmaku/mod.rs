@@ -112,24 +112,55 @@ pub async fn start_danmaku(
             }
         });
 
+        // 重连循环：指数退避（1s→30s 封顶），上次连接存活超过 60s 视为健康、退避重置。
+        // 连续 5 次失败（房间下播/平台故障）后 emit error 并退出，避免无限重试。
         emit_status(&task_app, &task_platform, &task_room, "connecting", None);
-        let result = match task_platform.as_str() {
-            "bilibili" => bilibili::run(&task_app, &task_room, tx.clone()).await,
-            "douyu" => douyu::run(&task_app, &task_room, tx.clone()).await,
-            "huya" => huya::run(&task_app, &task_room, tx.clone()).await,
-            "douyin" => douyin::run(&task_app, &task_room, tx.clone()).await,
-            "kuaishou" => kuaishou::run(&task_app, &task_room, tx.clone()).await,
-            _ => Err(anyhow::anyhow!("该平台暂不支持弹幕")),
-        };
-        match result {
-            Ok(()) => emit_status(&task_app, &task_platform, &task_room, "closed", None),
-            Err(e) => emit_status(
-                &task_app,
-                &task_platform,
-                &task_room,
-                "error",
-                Some(e.to_string()),
-            ),
+        let mut backoff: u64 = 1;
+        let mut consecutive_failures: u32 = 0;
+        loop {
+            let started = std::time::Instant::now();
+            let result = match task_platform.as_str() {
+                "bilibili" => bilibili::run(&task_app, &task_room, tx.clone()).await,
+                "douyu" => douyu::run(&task_app, &task_room, tx.clone()).await,
+                "huya" => huya::run(&task_app, &task_room, tx.clone()).await,
+                "douyin" => douyin::run(&task_app, &task_room, tx.clone()).await,
+                "kuaishou" => kuaishou::run(&task_app, &task_room, tx.clone()).await,
+                _ => Err(anyhow::anyhow!("该平台暂不支持弹幕")),
+            };
+            match result {
+                Ok(()) => {
+                    emit_status(&task_app, &task_platform, &task_room, "closed", None);
+                    break;
+                }
+                Err(e) => {
+                    // 上次连接存活超过 60s 说明此前是健康会话，重置退避
+                    if started.elapsed() >= std::time::Duration::from_secs(60) {
+                        backoff = 1;
+                    }
+                    consecutive_failures += 1;
+                    if consecutive_failures >= 5 {
+                        emit_status(
+                            &task_app,
+                            &task_platform,
+                            &task_room,
+                            "error",
+                            Some(format!("{}（已重试 {} 次）", e, consecutive_failures)),
+                        );
+                        break;
+                    }
+                    log::warn!(
+                        "[danmaku] {} {} 连接中断（第 {} 次），{}s 后重连: {}",
+                        task_platform,
+                        task_room,
+                        consecutive_failures,
+                        backoff,
+                        e
+                    );
+                    emit_status(&task_app, &task_platform, &task_room, "connecting", None);
+                    tokio::time::sleep(std::time::Duration::from_secs(backoff)).await;
+                    backoff = (backoff * 2).min(30);
+                }
+            }
         }
         drop(tx);
         forward.abort();

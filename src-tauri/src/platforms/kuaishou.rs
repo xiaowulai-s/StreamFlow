@@ -146,9 +146,9 @@ impl KuaishouAdapter {
             .await?;
         let status = resp.status();
         let body = resp.text().await.unwrap_or_default();
-        log::debug!("[ks] {} -> {} len={} head={}", url, status, body.len(), &body[..body.len().min(100)]);
+        log::debug!("[ks] {} -> {} len={} head={}", url, status, body.len(), body.chars().take(100).collect::<String>());
         if !status.is_success() {
-            anyhow::bail!("HTTP {}: {}", status, &body[..body.len().min(80)]);
+            anyhow::bail!("HTTP {}: {}", status, body.chars().take(80).collect::<String>());
         }
         Ok(serde_json::from_str(&body).map_err(|e| anyhow::anyhow!("JSON 解析失败({} 字节): {}", body.len(), e))?)
     }
@@ -267,7 +267,7 @@ impl KuaishouAdapter {
                 }
                 Err(e) => {
                     // 失效监测需要根因：聚合进最终错误
-                    let msg = format!("{}", &e.to_string()[..e.to_string().len().min(80)]);
+                    let msg = format!("{}", e.to_string().chars().take(80).collect::<String>());
                     log::warn!("快手榜单获取失败：{}", msg);
                     errs.push(msg);
                 }

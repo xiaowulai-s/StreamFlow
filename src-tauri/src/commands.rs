@@ -299,7 +299,7 @@ pub async fn check_platform_health(
             Ok(_) => (Some(start.elapsed().as_millis() as u64), None),
             Err(e) => (None, Some(format!("门户响应异常: {e}"))),
         },
-        Err(e) => (None, Some(format!("连接失败: {}", &e.to_string()[..e.to_string().len().min(60)]))),
+        Err(e) => (None, Some(format!("连接失败: {}", e.to_string().chars().take(60).collect::<String>()))),
     };
 
     // 2. 核心接口验证（热门列表真实调用，8s 超时）
@@ -315,7 +315,7 @@ pub async fn check_platform_health(
             (false, "接口响应为空（疑似字段变更或下线）".to_string(), 0)
         }
         Ok(Ok(rooms)) => (true, format!("热门接口正常（{} 个直播间）", rooms.len()), rooms.len()),
-        Ok(Err(e)) => (false, format!("接口失败: {}", &e.to_string()[..e.to_string().len().min(70)]), 0),
+        Ok(Err(e)) => (false, format!("接口失败: {}", e.to_string().chars().take(70).collect::<String>()), 0),
     };
 
     Ok(PlatformHealth { portal_ms, portal_error, api_ok, api_detail, room_count })

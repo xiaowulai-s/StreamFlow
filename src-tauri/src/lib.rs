@@ -10,7 +10,6 @@ pub mod adapter;
 pub mod auth;
 pub mod commands;
 pub mod danmaku;
-pub mod database;
 pub mod db;
 pub mod platforms;
 pub mod queue;
