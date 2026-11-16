@@ -132,7 +132,7 @@ pub struct HistoryRecord {
 #[tauri::command]
 pub async fn load_favorites() -> Result<Vec<FavoriteRecord>, String> {
     let rows = sqlx::query(
-        "SELECT platform, room_id, title, username, view_count, status, cover, started_at, added_at \
+        "SELECT platform, room_id, title, username, view_count, status, cover, started_at, added_at, group_name \
          FROM favorites ORDER BY added_at DESC",
     )
     .fetch_all(pool().await?)
@@ -166,8 +166,8 @@ pub async fn save_favorites(items: Vec<FavoriteRecord>) -> Result<(), String> {
     for item in items {
         sqlx::query(
             "INSERT OR REPLACE INTO favorites \
-             (platform, room_id, title, username, view_count, status, cover, started_at, added_at) \
-             VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)",
+             (platform, room_id, title, username, view_count, status, cover, started_at, added_at, group_name) \
+             VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
         )
         .bind(&item.platform)
         .bind(&item.id)
