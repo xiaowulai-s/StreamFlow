@@ -61,6 +61,14 @@ export function SettingsPage() {
   const [message, setMessage] = useState<{ ok: boolean; text: string } | null>(null);
   const [qr, setQr] = useState<QrState | null>(null);
   const importInputRef = useRef<HTMLInputElement>(null);
+  // 开播提醒开关（reminder.rs 轮询 settings.reminder_enabled）
+  const [reminderEnabled, setReminderEnabled] = useState(false);
+  useEffect(() => {
+    void getSetting('reminder_enabled')
+      .then((v) => setReminderEnabled(v === 'true'))
+      .catch(() => undefined);
+  }, []);
+
   // 6.2 播放设置
   const [defaultMuted, setDefaultMuted] = useState(false);
   const [defaultOpenMode, setDefaultOpenMode] = useState<'internal' | 'external'>('internal');
@@ -468,6 +476,28 @@ export function SettingsPage() {
             </div>
           );
         })}
+      </div>
+
+      <div className="rounded-card border border-line bg-surface px-5 py-4">
+        <h3 className="text-sm font-semibold text-ink">开播提醒</h3>
+        <p className="mt-1 text-xs text-slate">
+          收藏的主播开播时发送 Windows 桌面通知（每 5 分钟检测一次，应用重启后首轮不通知）
+        </p>
+        <label className="mt-3 flex cursor-pointer items-center gap-3">
+          <input
+            type="checkbox"
+            checked={reminderEnabled}
+            onChange={(e) => {
+              const next = e.target.checked;
+              setReminderEnabled(next);
+              void setSetting('reminder_enabled', next ? 'true' : 'false').catch(() => undefined);
+            }}
+            className="h-4 w-4"
+          />
+          <span className="text-xs text-ink">
+            {reminderEnabled ? '已开启：收藏主播开播将推送桌面通知' : '已关闭'}
+          </span>
+        </label>
       </div>
 
       <div className="rounded-card border border-line bg-surface px-5 py-4">

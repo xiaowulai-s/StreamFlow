@@ -79,6 +79,7 @@ fn run() -> Result<(), Box<dyn std::error::Error>> {
     // 应用内自更新：代理可通过 STREAMFLOW_UPDATER_PROXY 显式指定（见 commands.rs）
     tauri::Builder::default()
         .plugin(tauri_plugin_updater::Builder::new().build())
+        .plugin(tauri_plugin_notification::init())
         .manage(commands::PendingUpdate::default())
         .manage(state)
         .invoke_handler(tauri::generate_handler![
@@ -129,6 +130,9 @@ fn run() -> Result<(), Box<dyn std::error::Error>> {
 
             // 抖音页面环境搜索的本地回传 listener（详见 reverse/webctx.rs）
             streamflow_lib::reverse::webctx::init(app.handle().clone());
+
+            // 开播提醒轮询（reminder.rs：收藏主播 sleeping→live 变化发桌面通知）
+            streamflow_lib::reminder::start(app.handle().clone());
 
             // 诊断开关：STREAMFLOW_DEBUG_LOGIN=huya|douyu|bilibili 时启动后自动打开
             // 对应平台的登录窗口，用于排查 WebView2 白屏；正常启动不触发。
