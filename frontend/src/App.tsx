@@ -80,7 +80,7 @@ export default function App() {
     });
   }, []);
 
-  const { favorites, isFavorite, toggleFavorite, mergeFavorites } = useFavorites();
+  const { favorites, isFavorite, toggleFavorite, mergeFavorites, setFavorites } = useFavorites();
   const { history, addHistory, clearHistory, applyRetention } = useHistory();
   const { pref: theme, effective: effectiveTheme, setPref: setTheme } = useTheme();
 
@@ -102,6 +102,15 @@ export default function App() {
     setPage('watch');
   };
 
+  // 修改收藏的自定义分组（favorites 变化自动写回 SQLite）
+  const updateFavoriteGroup = (platform: string, id: string, group: string) => {
+    setFavorites((prev) =>
+      prev.map((f) =>
+        f.platform === platform && f.id === id ? { ...f, groupName: group } : f,
+      ),
+    );
+  };
+
   return (
     <AppContext.Provider
       value={{
@@ -109,6 +118,7 @@ export default function App() {
         navigate: setPage,
         watching: watchRoom,
         watch,
+        updateFavoriteGroup,
         globalKeyword,
         setGlobalKeyword,
         favorites,

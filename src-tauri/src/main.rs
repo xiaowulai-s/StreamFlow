@@ -107,6 +107,7 @@ fn run() -> Result<(), Box<dyn std::error::Error>> {
             auth::poll_qr_login,
             db::load_favorites,
             db::save_favorites,
+            db::set_favorite_group,
             db::load_history,
             db::save_history,
             db::get_setting,

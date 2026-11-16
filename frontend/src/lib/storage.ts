@@ -14,6 +14,8 @@ const HIS_KEY = 'streamflow.history';
 
 export interface FavoriteItem extends Room {
   addedAt: number;
+  /** 自定义分组（默认「默认」） */
+  groupName?: string;
 }
 
 export interface HistoryItem extends Room {
@@ -114,7 +116,7 @@ export function useFavorites() {
     [favorites],
   );
 
-  return { favorites, isFavorite, toggleFavorite, mergeFavorites };
+  return { favorites, setFavorites, isFavorite, toggleFavorite, mergeFavorites };
 }
 
 /** 观看历史：最新在前，默认保留 200 条；另有按天保留期限（history_retention_days 设置，0=永久） */

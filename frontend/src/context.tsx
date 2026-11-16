@@ -14,6 +14,8 @@ export interface AppContextType {
   watching: Room | null;
   /** 从任意卡片进入观看页：切换页面 + 记录历史 */
   watch: (room: Room) => void;
+  /** 修改收藏的自定义分组（写回由 useFavorites 自动完成） */
+  updateFavoriteGroup: (platform: string, id: string, group: string) => void;
   /** 顶栏全局搜索关键词（跨页共享） */
   globalKeyword: string;
   setGlobalKeyword: (kw: string) => void;

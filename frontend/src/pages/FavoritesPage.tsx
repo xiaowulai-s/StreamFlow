@@ -19,7 +19,11 @@ export function FavoritesPage() {
     mergeFavorites,
     hiddenFollowPlatforms,
     toggleFollowVisible,
+    updateFavoriteGroup,
   } = useApp();
+  const [groupPanelOpen, setGroupPanelOpen] = useState(false);
+  const [activeGroup, setActiveGroup] = useState('__all__');
+  const allGroups = Array.from(new Set(['默认', ...favorites.map((f) => f.groupName || '默认')]));
   const [syncing, setSyncing] = useState(false);
   const [syncMessage, setSyncMessage] = useState<string | null>(null);
 
@@ -32,9 +36,15 @@ export function FavoritesPage() {
   }
 
   /** 展示中的分组（用户在分组头用眼睛图标控制隐藏/显示） */
-  const visibleGroups = Array.from(groups.entries()).filter(
-    ([platform]) => !hiddenFollowPlatforms.has(platform),
-  );
+  const visibleGroups = Array.from(groups.entries())
+    .filter(([platform]) => !hiddenFollowPlatforms.has(platform))
+    .map(([platform, items]) => [
+      platform,
+      activeGroup === '__all__'
+        ? items
+        : items.filter((f) => (f.groupName || '默认') === activeGroup),
+    ] as [Platform, typeof favorites])
+    .filter(([, items]) => items.length > 0);
   const visibleCount = visibleGroups.reduce((n, [, items]) => n + items.length, 0);
 
   const handleSync = async () => {
@@ -67,20 +77,109 @@ export function FavoritesPage() {
     }
   };
 
+  const handleSetGroup = (platform: string, id: string, group: string) => {
+    updateFavoriteGroup(platform, id, group);
+  };
+
   return (
     <div className="space-y-6">
       <div className="flex items-center justify-between gap-4">
         <h1 className="text-lg font-bold text-ink">
           我的关注 <span className="ml-1 text-sm font-normal text-slate">共 {visibleCount} 位</span>
         </h1>
-        <button
-          onClick={handleSync}
-          disabled={syncing}
-          className="brand-gradient rounded-lg px-4 py-2 text-xs font-medium text-white transition-opacity hover:opacity-90 disabled:opacity-40"
-        >
-          {syncing ? '同步中…' : '同步平台关注'}
-        </button>
+        <div className="flex shrink-0 items-center gap-2">
+          <button
+            onClick={() => setGroupPanelOpen((v) => !v)}
+            className="rounded-lg border border-line px-3 py-2 text-xs text-slate transition-colors hover:border-stream hover:text-stream"
+          >
+            分组管理
+          </button>
+          <button
+            onClick={handleSync}
+            disabled={syncing}
+            className="brand-gradient rounded-lg px-4 py-2 text-xs font-medium text-white transition-opacity hover:opacity-90 disabled:opacity-40"
+          >
+            {syncing ? '同步中…' : '同步平台关注'}
+          </button>
+        </div>
       </div>
+
+      {/* 分组筛选：全部 / 各自定义分组 */}
+      {favorites.length > 0 && (
+        <div className="flex flex-wrap items-center gap-2">
+          {(['__all__', ...allGroups] as string[]).map((g) => {
+            const count =
+              g === '__all__'
+                ? favorites.length
+                : favorites.filter((f) => (f.groupName || '默认') === g).length;
+            if (g !== '__all__' && count === 0) return null;
+            return (
+              <button
+                key={g}
+                onClick={() => setActiveGroup(g)}
+                className={`rounded-full border px-3 py-1 text-xs transition-colors ${
+                  activeGroup === g
+                    ? 'border-stream bg-stream/15 font-medium text-stream'
+                    : 'border-line bg-surface text-slate hover:text-ink'
+                }`}
+              >
+                {g === '__all__' ? '全部' : g}（{count}）
+              </button>
+            );
+          })}
+        </div>
+      )}
+
+      {/* 分组管理面板：集中修改每条收藏的分组 */}
+      {groupPanelOpen && (
+        <div className="rounded-card border border-line bg-surface px-5 py-4">
+          <h3 className="text-xs font-semibold text-ink">分组管理</h3>
+          <p className="mt-1 text-xs text-slate">为每位关注选择分组；下方输入框回车可新建分组（应用于全部当前显示项）。</p>
+          <div className="mt-3 max-h-72 space-y-2 overflow-y-auto pr-1">
+            {favorites.map((f) => (
+              <div key={`${f.platform}-${f.id}`} className="flex items-center gap-2 text-xs">
+                <span className="w-14 shrink-0 text-slate">
+                  {PLATFORM_LABELS[f.platform as Platform] ?? f.platform}
+                </span>
+                <span className="min-w-0 flex-1 truncate text-ink">{f.title || f.username}</span>
+                <select
+                  value={f.groupName || '默认'}
+                  onChange={(e) => handleSetGroup(f.platform, f.id, e.target.value)}
+                  className="shrink-0 rounded border border-line bg-surface px-2 py-1 text-xs text-ink"
+                >
+                  {Array.from(new Set([...allGroups, f.groupName || '默认'])).map((g) => (
+                    <option key={g} value={g}>
+                      {g}
+                    </option>
+                  ))}
+                </select>
+              </div>
+            ))}
+          </div>
+          <div className="mt-3 flex items-center gap-2">
+            <input
+              type="text"
+              id="new-group-input"
+              placeholder="新建分组名（回车）"
+              className="w-48 rounded border border-line bg-surface px-2 py-1 text-xs text-ink"
+              onKeyDown={(e) => {
+                if (e.key === 'Enter') {
+                  const input = e.target as HTMLInputElement;
+                  const name = input.value.trim();
+                  if (!name) return;
+                  // 将当前筛选下的全部收藏移入新分组
+                  const targets = favorites.filter(
+                    (f) => activeGroup === '__all__' || (f.groupName || '默认') === activeGroup,
+                  );
+                  for (const t of targets) handleSetGroup(t.platform, t.id, name);
+                  input.value = '';
+                }
+              }}
+            />
+            <span className="text-[10px] text-slate">回车后将当前筛选下的全部收藏移入该分组</span>
+          </div>
+        </div>
+      )}
 
       {syncMessage && (
         <div className="rounded-lg border border-line bg-surface px-4 py-3 text-xs text-slate">

@@ -126,6 +126,10 @@ export function pollQrLogin(platform: string, key: string): Promise<QrLoginPoll>
 // 本地 SQLite 存储（收藏 / 历史 / 设置）
 // ---------------------------------------------------------------------------
 
+export function setFavoriteGroup(platform: string, roomId: string, groupName: string): Promise<void> {
+  return rawInvoke('set_favorite_group', { platform, roomId, groupName });
+}
+
 export function loadFavorites(): Promise<FavoriteItem[]> {
   return rawInvoke('load_favorites', {});
 }

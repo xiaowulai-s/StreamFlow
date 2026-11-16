@@ -33,6 +33,7 @@ pub async fn init(db_path: &str) -> Result<(), String> {
             cover      TEXT,
             started_at INTEGER,
             added_at   INTEGER NOT NULL,
+            group_name TEXT NOT NULL DEFAULT '默认',
             PRIMARY KEY (platform, room_id)
         );
         "#,
@@ -40,6 +41,16 @@ pub async fn init(db_path: &str) -> Result<(), String> {
     .execute(&pool)
     .await
     .map_err(|e| format!("创建 favorites 表失败: {}", e))?;
+
+    // 迁移：已有 favorites 表补 group_name 列（幂等，列存在时忽略报错）
+    if let Err(e) = sqlx::query(
+        "ALTER TABLE favorites ADD COLUMN group_name TEXT NOT NULL DEFAULT '默认'",
+    )
+    .execute(&pool)
+    .await
+    {
+        log::debug!("[db] favorites.group_name 迁移跳过（已存在）: {}", e);
+    }
 
     sqlx::query(
         r#"
@@ -94,6 +105,13 @@ pub struct FavoriteRecord {
     pub cover: Option<String>,
     pub started_at: Option<i64>,
     pub added_at: i64,
+    /// 自定义分组（关注分组，默认「默认」）
+    #[serde(default = "default_group")]
+    pub group_name: String,
+}
+
+fn default_group() -> String {
+    "默认".to_string()
 }
 
 /// 观看历史条目（与前端 HistoryItem 对应）
@@ -133,6 +151,7 @@ pub async fn load_favorites() -> Result<Vec<FavoriteRecord>, String> {
             cover: r.get("cover"),
             started_at: r.get("started_at"),
             added_at: r.get("added_at"),
+            group_name: r.get("group_name"),
         })
         .collect())
 }
@@ -159,11 +178,25 @@ pub async fn save_favorites(items: Vec<FavoriteRecord>) -> Result<(), String> {
         .bind(&item.cover)
         .bind(item.started_at)
         .bind(item.added_at)
+        .bind(&item.group_name)
         .execute(&mut *tx)
         .await
         .map_err(|e| format!("写入收藏失败: {}", e))?;
     }
     tx.commit().await.map_err(|e| e.to_string())
+}
+
+/// 单条收藏改分组（关注分组）
+#[tauri::command]
+pub async fn set_favorite_group(platform: String, room_id: String, group_name: String) -> Result<(), String> {
+    sqlx::query("UPDATE favorites SET group_name = ? WHERE platform = ? AND room_id = ?")
+        .bind(if group_name.trim().is_empty() { "默认" } else { group_name.trim() })
+        .bind(&platform)
+        .bind(&room_id)
+        .execute(pool().await?)
+        .await
+        .map(|_| ())
+        .map_err(|e| format!("更新分组失败: {}", e))
 }
 
 #[tauri::command]
