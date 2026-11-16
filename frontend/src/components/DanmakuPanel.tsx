@@ -46,19 +46,26 @@ export function DanmakuPanel({ platform, roomId }: { platform: string; roomId: s
     const unlisteners: Array<() => void> = [];
 
     (async () => {
-      unlisteners.push(
-        await onDanmakuMessage((msg) => {
-          if (disposed || msg.platform !== platform || msg.roomId !== roomId) return;
-          setMessages((prev) => [...prev.slice(-199), msg]);
-        }),
-      );
-      unlisteners.push(
-        await onDanmakuStatus((event) => {
-          if (disposed || event.platform !== platform || event.roomId !== roomId) return;
-          setStatus(event.status);
-          setError(event.status === 'error' ? (event.message ?? '弹幕连接失败') : null);
-        }),
-      );
+      // 注册完成后校验 disposed：cleanup 先于 await 返回时立即补 unlisten（防泄漏）
+      const un = await onDanmakuMessage((msg) => {
+        if (disposed || msg.platform !== platform || msg.roomId !== roomId) return;
+        setMessages((prev) => [...prev.slice(-199), msg]);
+      });
+      if (disposed) {
+        un();
+        return;
+      }
+      unlisteners.push(un);
+      const un2 = await onDanmakuStatus((event) => {
+        if (disposed || event.platform !== platform || event.roomId !== roomId) return;
+        setStatus(event.status);
+        setError(event.status === 'error' ? (event.message ?? '弹幕连接失败') : null);
+      });
+      if (disposed) {
+        un2();
+        return;
+      }
+      unlisteners.push(un2);
       try {
         await startDanmaku(platform, roomId);
       } catch (e) {

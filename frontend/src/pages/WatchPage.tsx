@@ -166,6 +166,17 @@ export function WatchPage() {
       const hls = new Hls();
       hls.loadSource(streamUrl);
       hls.attachMedia(video);
+      // 网络错误自动恢复（直播流抖动重试，连续 3 次失败才报错）
+      let netRetry = 0;
+      hls.on(Hls.Events.ERROR, (_e, data) => {
+        if (!data.fatal) return;
+        if (data.type === Hls.ErrorTypes.NETWORK_ERROR && netRetry < 3) {
+          netRetry += 1;
+          setTimeout(() => hls.startLoad(), 1200);
+          return;
+        }
+        setLoadError(`直播流中断：${data.details}（可尝试切换画质或刷新）`);
+      });
       handle = hls;
     } else if (video.canPlayType('application/vnd.apple.mpegurl')) {
       video.src = streamUrl;

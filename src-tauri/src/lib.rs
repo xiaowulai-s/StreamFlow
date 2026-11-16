@@ -12,7 +12,6 @@ pub mod commands;
 pub mod danmaku;
 pub mod db;
 pub mod platforms;
-pub mod queue;
 pub mod reverse;
 
 #[derive(Debug, Clone, Serialize, Deserialize)]

@@ -63,7 +63,7 @@ export function HomePage() {
     setSearchLoading(false);
   }, [disabledPlatforms, searchScope]);
 
-  // 关键词变化 → 执行搜索；清空 → 回到浏览态
+  // 关键词或搜索范围变化 → 执行搜索；清空 → 回到浏览态
   useEffect(() => {
     if (!keyword) {
       setResults(null);
@@ -73,8 +73,10 @@ export function HomePage() {
       lastSearch.current = '';
       return;
     }
-    if (lastSearch.current === keyword) return;
-    lastSearch.current = keyword;
+    // 组合键守卫：范围切换后即使关键词相同也要重搜（fix：此前 keyword 单键守卫阻断重搜）
+    const scopeKey = `${searchScope}|${keyword}`;
+    if (lastSearch.current === scopeKey) return;
+    lastSearch.current = scopeKey;
     doSearch(keyword);
   }, [keyword, doSearch]);
 

@@ -23,6 +23,10 @@ struct ResultSlot {
 }
 static SLOT: std::sync::OnceLock<ResultSlot> = std::sync::OnceLock::new();
 
+/// 页面环境请求串行锁：单隐藏窗口 + 单结果槽，并发 fetch 会互相覆盖结果。
+/// fetch_page 全程持锁串行化（当前调用方均为串行场景，无吞吐损失）。
+static FETCH_GATE: tokio::sync::Mutex<()> = tokio::sync::Mutex::const_new(());
+
 fn slot() -> &'static ResultSlot {
     SLOT.get_or_init(|| ResultSlot { body: Mutex::new(None), signal: Condvar::new() })
 }
@@ -168,6 +172,8 @@ fn wait_result(timeout: std::time::Duration) -> Option<String> {
 /// 页面来源：`login-douyin` 窗口（登录成功后 hide 保留）。窗口不存在时
 /// 惰性创建隐藏窗口（同登录 data_directory → 共享登录 cookie，应用重启后自动恢复）。
 pub async fn fetch_page(url: &str) -> anyhow::Result<String> {
+    // 串行化：防止并发调用清空/覆盖彼此的结果槽
+    let _gate = FETCH_GATE.lock().await;
     let app = APP.get().ok_or_else(|| anyhow::anyhow!("webctx 未初始化"))?;
     let win = match app.get_webview_window("login-douyin") {
         Some(w) => w,
