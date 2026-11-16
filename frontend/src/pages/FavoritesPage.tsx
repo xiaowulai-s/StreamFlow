@@ -35,6 +35,19 @@ export function FavoritesPage() {
     groups.set(f.platform, list);
   }
 
+  // 多平台同名主播检测（联合身份去重简化形态：昵称完全一致时提示可能为同一人）
+  const crossPlatformDupes = (() => {
+    const byName = new Map<string, Set<Platform>>();
+    for (const f of favorites) {
+      const name = f.username?.trim();
+      if (!name) continue;
+      const set = byName.get(name) ?? new Set<Platform>();
+      set.add(f.platform);
+      byName.set(name, set);
+    }
+    return Array.from(byName.entries()).filter(([, plats]) => plats.size > 1);
+  })();
+
   /** 展示中的分组（用户在分组头用眼睛图标控制隐藏/显示） */
   const visibleGroups = Array.from(groups.entries())
     .filter(([platform]) => !hiddenFollowPlatforms.has(platform))
@@ -127,6 +140,21 @@ export function FavoritesPage() {
               </button>
             );
           })}
+        </div>
+      )}
+
+      {/* 跨平台同名提示（联合身份去重简化形态） */}
+      {crossPlatformDupes.length > 0 && (
+        <div className="rounded-card border border-amber-300/60 bg-amber-50/60 px-4 py-3 text-xs text-slate dark:border-amber-500/30 dark:bg-amber-500/10">
+          <span className="font-medium text-ink">
+            发现 {crossPlatformDupes.length} 组跨平台同名主播：
+          </span>
+          {crossPlatformDupes.map(([name, plats]) => (
+            <span key={name} className="ml-2">
+              「{name}」（{Array.from(plats).map((p) => PLATFORM_LABELS[p] ?? p).join('/')}）
+            </span>
+          ))}
+          <span className="ml-2">——若确为同一人，可酌情取消其中一个平台的关注。</span>
         </div>
       )}
 

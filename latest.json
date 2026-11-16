@@ -1,11 +1,11 @@
 {
-  "version": "0.0.2",
-  "pub_date": "2026-11-12T07:56:19.447Z",
+  "version": "0.0.3",
+  "pub_date": "2026-11-16T04:25:41.574Z",
   "platforms": {
     "windows-x86_64": {
-      "signature": "dW50cnVzdGVkIGNvbW1lbnQ6IHNpZ25hdHVyZSBmcm9tIHRhdXJpIHNlY3JldCBrZXkKUlVSc0FtaGFnK2ErdGE3TVhXdzdiV2M2TFR5aG5EamxabVl6OFpzSlZGNEdEc2pkWUR2cUN3aWlvTVZQRDhHYkdWMitvTEptamtNb001NW9oR1JzNTNTN1NCck9QNVlGWkFRPQp0cnVzdGVkIGNvbW1lbnQ6IHRpbWVzdGFtcDoxNzk0NDcwMTU2CWZpbGU6Wl8wLjAuMl94NjRfZW4tVVMubXNpCXZlcnNpb246MC4wLjIKSjZ0Si9lWk83WW5DL3BrKzhhM292L0huZnZjR1M0cTdyNkhyOVdWcmw2TEVqNWlhQUVCQzBnaVdINXY1QklxOEtuK1ZtODREL3ZXTDJsNjVuYUpIQUE9PQo=",
-      "url": "https://github.com/xiaowulai-s/StreamFlow/releases/download/v0.0.2/Z_0.0.2_x64_en-US.msi"
+      "signature": "dW50cnVzdGVkIGNvbW1lbnQ6IHNpZ25hdHVyZSBmcm9tIHRhdXJpIHNlY3JldCBrZXkKUlVSc0FtaGFnK2ErdFhJMndGOEZ0azdSdXpBUStNOWNycnRKcGVRNVhrTHh2K2s3bmg4ZDRGY2dSUnFaV1ErOWlRWlFzRmJ6RHdNVWxPSmxwcFIrMGkvYWJRdDg4ZnF0SUFjPQp0cnVzdGVkIGNvbW1lbnQ6IHRpbWVzdGFtcDoxNzk0ODAzMTI5CWZpbGU6Wl8wLjAuM194NjRfZW4tVVMubXNpCXZlcnNpb246MC4wLjMKN1lOUnZoQ0VNN0VQTklOMDNLendwckFYZjhkZlAwNkdQQ1o5NW9GSkcvV053Yk5CTGVHY1AzZ2k4Wi9JeDN4a05NRm9zQXo2N2JINHFjbmltWHBoQUE9PQo=",
+      "url": "https://github.com/xiaowulai-s/StreamFlow/releases/download/v0.0.3/Z_0.0.3_x64_en-US.msi"
     }
   },
-  "notes": "抖音搜索打通（页面环境架构）、应用更名 Z + 全新双主题图标、快手 TLS 风控修复（rustls）、历史保留期限、接口级失效监测"
+  "notes": "飘屏弹幕（横向滚动+显示范围/密度/速度/透明度/字号全控制）、抖音搜索与关注导入、跨平台热门恢复、搜索范围筛选、关注分组、历史平台筛选、开播提醒桌面通知、弹幕自动重连、稳定性修复（UTF-8/签名竞态）、死依赖清理"
 }
